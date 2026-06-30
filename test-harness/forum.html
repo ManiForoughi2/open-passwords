@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AcmeForums - Community</title>
+  <style>
+    :root { --brand: #2b6cb0; --bg: #eef1f5; --card: #ffffff; --text: #1f2937; --muted: #6b7280; --border: #d1d5db; --nav: #1f2937; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); }
+    .scenario-banner { background: #fffbeb; border-bottom: 1px solid #fde68a; padding: 10px 16px; font-size: 13px; color: #92400e; }
+    .scenario-banner b { color: #78350f; }
+    header { background: var(--nav); color: #fff; }
+    .nav { max-width: 960px; margin: 0 auto; display: flex; align-items: center; gap: 16px; padding: 10px 16px; }
+    .brand { font-weight: 700; font-size: 18px; color: #fff; }
+    .nav-links { display: flex; gap: 14px; font-size: 14px; }
+    .nav-links a { color: #cbd5e1; text-decoration: none; }
+    .nav-links a:hover { color: #fff; }
+    .spacer { flex: 1; }
+    /* Search box in the nav - NOT a login field. Manager should NOT offer to fill this. */
+    .nav-search { display: flex; align-items: center; }
+    .nav-search input { padding: 7px 10px; font-size: 13px; border: 1px solid #374151; border-radius: 6px 0 0 6px; background: #111827; color: #fff; width: 180px; }
+    .nav-search button { padding: 7px 12px; font-size: 13px; border: 1px solid #374151; border-left: 0; border-radius: 0 6px 6px 0; background: #374151; color: #fff; cursor: pointer; }
+    /* Mini login in the header - this IS a real login. */
+    .header-login { display: flex; gap: 8px; align-items: center; }
+    .header-login input { padding: 7px 9px; font-size: 13px; border: 1px solid #374151; border-radius: 6px; background: #111827; color: #fff; width: 120px; }
+    .header-login button { padding: 7px 12px; font-size: 13px; border: 0; border-radius: 6px; background: var(--brand); color: #fff; cursor: pointer; }
+    .layout { max-width: 960px; margin: 20px auto; padding: 0 16px; display: grid; grid-template-columns: 1fr 240px; gap: 20px; }
+    .main { display: flex; flex-direction: column; gap: 16px; }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+    .panel h2 { font-size: 16px; margin: 0 0 10px; }
+    .thread { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eef1f5; }
+    .thread:last-child { border-bottom: 0; }
+    .avatar { width: 36px; height: 36px; border-radius: 50%; background: #c7d2fe; flex: none; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #3730a3; }
+    .thread .meta { font-size: 12px; color: var(--muted); }
+    .thread .title { font-weight: 600; font-size: 15px; }
+    .reply textarea { width: 100%; min-height: 90px; padding: 10px; font-size: 14px; border: 1px solid var(--border); border-radius: 8px; resize: vertical; font-family: inherit; }
+    .reply input[type=text] { width: 100%; padding: 9px 10px; font-size: 14px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+    .reply button { margin-top: 10px; padding: 9px 16px; font-size: 14px; font-weight: 600; color: #fff; background: var(--brand); border: 0; border-radius: 8px; cursor: pointer; }
+    .side .panel input { width: 100%; padding: 8px 10px; font-size: 13px; border: 1px solid var(--border); border-radius: 8px; }
+    .side .panel button { margin-top: 8px; width: 100%; padding: 8px; font-size: 13px; border: 0; border-radius: 8px; background: var(--brand); color: #fff; cursor: pointer; }
+    .home { display: inline-block; margin: 0 16px 24px; font-size: 13px; color: var(--brand); text-decoration: none; }
+    input:focus, textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(43,108,176,.15); }
+    @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } .nav { flex-wrap: wrap; } }
+  </style>
+</head>
+<body>
+  <div class="scenario-banner">
+    <b>Scenario: Forum (false-positive test).</b> A real login lives in the header, but the page also has a nav <b>search box</b>, a <b>reply</b> box, a <b>quote/topic title</b> field, and a sidebar <b>newsletter email</b> field - none of which are login fields.
+    <b>Correct behavior:</b> the extension should offer credentials ONLY on the header username/password login, and must NOT offer to autofill the search box, reply box, or unrelated text inputs.
+  </div>
+
+  <header>
+    <div class="nav">
+      <span class="brand">AcmeForums</span>
+      <nav class="nav-links">
+        <a href="#">Home</a>
+        <a href="#">Categories</a>
+        <a href="#">Latest</a>
+      </nav>
+      <span class="spacer"></span>
+
+      <!-- Search box: must NOT be offered a credential -->
+      <form class="nav-search" role="search" action="javascript:void(0)" autocomplete="off">
+        <input type="search" name="q" placeholder="Search forums..." aria-label="Search forums" autocomplete="off">
+        <button type="submit">Search</button>
+      </form>
+
+      <!-- Real header login: SHOULD be offered a credential -->
+      <form class="header-login" action="javascript:void(0)" method="post" autocomplete="on" id="headerLogin">
+        <input type="text" name="username" placeholder="Username" aria-label="Username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
+        <input type="password" name="password" placeholder="Password" aria-label="Password" autocomplete="current-password">
+        <button type="submit">Log In</button>
+      </form>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div class="main">
+      <div class="panel">
+        <h2>Latest discussions</h2>
+        <div class="thread">
+          <div class="avatar">J</div>
+          <div>
+            <div class="title">Best way to migrate from another password manager?</div>
+            <div class="meta">by jdoe - 12 replies - 2h ago</div>
+          </div>
+        </div>
+        <div class="thread">
+          <div class="avatar">M</div>
+          <div>
+            <div class="title">Extension shows the AutoFill balloon on every OTP box - anyone else?</div>
+            <div class="meta">by mforo - 47 replies - 5h ago</div>
+          </div>
+        </div>
+        <div class="thread">
+          <div class="avatar">S</div>
+          <div>
+            <div class="title">Feature request: one-time-code detection for split inputs</div>
+            <div class="meta">by sam - 8 replies - 1d ago</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel reply">
+        <h2>Post a reply</h2>
+        <form action="javascript:void(0)" autocomplete="off" id="replyForm">
+          <!-- Topic title: plain text field, NOT a username/login -->
+          <input type="text" name="topic_title" placeholder="Topic title (optional)" aria-label="Topic title" autocomplete="off">
+          <!-- Reply body: must NOT be offered a credential -->
+          <textarea name="reply_body" placeholder="Write your reply..." aria-label="Reply body"></textarea>
+          <button type="submit">Post Reply</button>
+        </form>
+      </div>
+    </div>
+
+    <aside class="side">
+      <div class="panel">
+        <h2>About</h2>
+        <p style="font-size:13px;color:var(--muted);margin:0;">A friendly community of password-manager nerds. Be kind, cite sources.</p>
+      </div>
+      <div class="panel">
+        <h2>Newsletter</h2>
+        <!-- Email signup: an email field, but NOT a login. Manager should not treat it as a username login field. -->
+        <form action="javascript:void(0)" autocomplete="off" id="newsletterForm">
+          <input type="email" name="newsletter_email" placeholder="Your email" aria-label="Newsletter email" autocomplete="off">
+          <button type="submit">Subscribe</button>
+        </form>
+      </div>
+    </aside>
+  </div>
+
+  <a class="home" href="index.html">&larr; Back to test harness</a>
+
+  <script>
+    function block(id, label) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('submit', function (e) { e.preventDefault(); alert(label + ' (nothing was sent).'); });
+    }
+    block('headerLogin', 'Mock header login submitted');
+    block('replyForm', 'Mock reply posted');
+    block('newsletterForm', 'Mock newsletter subscribe');
+    document.querySelector('.nav-search').addEventListener('submit', function (e) { e.preventDefault(); alert('Mock search (nothing was sent).'); });
+  </script>
+</body>
+</html>

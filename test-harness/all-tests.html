@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Open Passwords - All Tests</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body { font: 15px/1.55 -apple-system, system-ui, sans-serif; margin: 0; background: #f4f5f7; color: #111; }
+    @media (prefers-color-scheme: dark){ body{background:#16181c;color:#eee} .card{background:#21242b!important;border-color:#333!important} a{color:#6ea8ff} .muted{color:#9aa!important} }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 28px 18px 90px; }
+    h1 { font-size: 26px; margin: 0 0 4px; }
+    .sub { color: #666; margin: 0 0 8px; }
+    .note { background: #fff7e0; border: 1px solid #f0d990; border-radius: 10px; padding: 12px 16px; font-size: 14px; margin: 16px 0 28px; }
+    @media (prefers-color-scheme: dark){ .note{background:#2a2616;border-color:#5a4} }
+    h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .04em; color: #888; margin: 30px 0 10px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 620px){ .grid { grid-template-columns: 1fr; } }
+    .card { display: block; background: #fff; border: 1px solid rgba(128,128,128,.2); border-radius: 12px; padding: 14px 16px; text-decoration: none; color: inherit; transition: transform .06s, box-shadow .06s; }
+    .card:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,.08); }
+    .card .t { font-weight: 700; font-size: 15px; }
+    .card .d { color: #777; font-size: 13px; margin-top: 3px; }
+    .badge { display: inline-block; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
+    .show { background: #d4f5dd; color: #137a37; }
+    .hide { background: #ffe0e0; color: #c0392b; }
+    .both { background: #e3e9ff; color: #2540c0; }
+    .star { background: #ffe8b3; color: #8a5a00; }
+    .muted { color:#888; font-size: 13px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Open Passwords - Every Test</h1>
+  <p class="sub">One place to check every test page we've built. Load <b>Open Passwords</b> first, then click into each page's fields.</p>
+
+  <div class="note">
+    <b>How to read the badges:</b>
+    <span class="badge show">SHOW</span> the dropdown should appear &nbsp;
+    <span class="badge hide">NO DROPDOWN</span> it should stay away &nbsp;
+    <span class="badge both">MIXED</span> show on some fields, not others &nbsp;
+    <span class="badge star">START HERE</span> the all-in-one bench
+  </div>
+
+  <h2>Start here</h2>
+  <div class="grid">
+    <a class="card" href="testbench.html"><div class="t">Test Bench <span class="badge star">START HERE</span></div><div class="d">All scenarios on one page with a live event log at the bottom. The fastest way to check everything.</div></a>
+  </div>
+
+  <h2>Real logins - the dropdown SHOULD show + fill</h2>
+  <div class="grid">
+    <a class="card" href="login-standard.html"><div class="t">Standard login <span class="badge show">SHOW</span></div><div class="d">Username + password on one screen. The bread-and-butter case.</div></a>
+    <a class="card" href="login-twostep.html"><div class="t">Two-step login <span class="badge show">SHOW</span></div><div class="d">Username first, password revealed later (Google/Microsoft style).</div></a>
+    <a class="card" href="signup.html"><div class="t">Sign-up form <span class="badge show">SHOW</span></div><div class="d">New-account form with new-password + confirm.</div></a>
+    <a class="card" href="forum.html"><div class="t">Forum (login + search) <span class="badge both">MIXED</span></div><div class="d">SHOW on the header login; NOT on the search/reply/newsletter boxes.</div></a>
+    <a class="card" href="tricky.html"><div class="t">Tricky edge cases <span class="badge both">MIXED</span></div><div class="d">Hidden field, no-name field, iframe login, a form injected after 1.5s.</div></a>
+  </div>
+
+  <h2>Verification codes - should NEVER show (the viral Apple bug)</h2>
+  <div class="grid">
+    <a class="card" href="otp-multibox.html"><div class="t">OTP - 6 separate boxes <span class="badge hide">NO DROPDOWN</span></div><div class="d">The viral "balloon on every box" case. Ours shows nothing.</div></a>
+    <a class="card" href="otp-singlefield.html"><div class="t">OTP - single field <span class="badge hide">NO DROPDOWN</span></div><div class="d">One one-time-code input. Still nothing.</div></a>
+  </div>
+
+  <h2>Adversarial - non-login fields that should NEVER show</h2>
+  <div class="grid">
+    <a class="card" href="adversarial/social-tag.html"><div class="t">Instagram tag picker <span class="badge hide">NO DROPDOWN</span></div><div class="d">The exact field that used to wrongly trigger. The bug you found.</div></a>
+    <a class="card" href="adversarial/search-bar.html"><div class="t">Search bars <span class="badge hide">NO DROPDOWN</span></div><div class="d">Site search inputs (type=search, formless, in a search form).</div></a>
+    <a class="card" href="adversarial/compose-message.html"><div class="t">Compose / DM box <span class="badge hide">NO DROPDOWN</span></div><div class="d">Chat/message inputs and a contenteditable box.</div></a>
+    <a class="card" href="adversarial/comment-box.html"><div class="t">Comment / reply <span class="badge hide">NO DROPDOWN</span></div><div class="d">Comment and reply fields.</div></a>
+    <a class="card" href="adversarial/checkout-address.html"><div class="t">Checkout address <span class="badge hide">NO DROPDOWN</span></div><div class="d">Name/address/city/email checkout fields (no password = not a login).</div></a>
+    <a class="card" href="adversarial/newsletter.html"><div class="t">Newsletter email <span class="badge hide">NO DROPDOWN</span></div><div class="d">A lone email signup box.</div></a>
+    <a class="card" href="adversarial/profile-edit.html"><div class="t">Profile edit <span class="badge hide">NO DROPDOWN</span></div><div class="d">Settings form with name/email/phone, no password.</div></a>
+    <a class="card" href="adversarial/mixed-page.html"><div class="t">Mixed page <span class="badge both">MIXED</span></div><div class="d">Header search + a real login lower down. SHOW only on the login.</div></a>
+  </div>
+
+  <h2>Security</h2>
+  <div class="grid">
+    <a class="card" href="clickjack.html"><div class="t">Clickjacking defense <span class="badge hide">NO FILL</span></div><div class="d">A hidden/offscreen password field. Filling the visible username must NOT fill the hidden password (the 2025 Marek Toth attack).</div></a>
+  </div>
+
+  <h2>Index pages</h2>
+  <div class="grid">
+    <a class="card" href="index.html"><div class="t">Original harness index</div><div class="d">The first landing page.</div></a>
+    <a class="card" href="adversarial/index.html"><div class="t">Adversarial index</div><div class="d">Landing page for just the adversarial set.</div></a>
+  </div>
+
+  <p class="muted" style="margin-top:30px">
+    Automated versions of all of these live in <code>test-harness/automation/</code> (run <code>node run-all.mjs</code>). Last automated run: 9/9 suites green.
+  </p>
+</div>
+</body>
+</html>

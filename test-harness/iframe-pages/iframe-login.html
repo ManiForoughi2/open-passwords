@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Embedded Login</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #ffffff; color: #1f2937; }
+    .frame { padding: 16px; }
+    h2 { font-size: 15px; margin: 0 0 4px; }
+    .sub { font-size: 12px; color: #6b7280; margin: 0 0 12px; }
+    label { display: block; font-size: 12px; font-weight: 600; margin: 12px 0 5px; }
+    input { width: 100%; padding: 9px 10px; font-size: 14px; border: 1px solid #d1d5db; border-radius: 7px; }
+    input:focus { outline: none; border-color: #2b6cb0; box-shadow: 0 0 0 3px rgba(43,108,176,.15); }
+    button { width: 100%; margin-top: 14px; padding: 10px; font-size: 14px; font-weight: 600; color: #fff; background: #2b6cb0; border: 0; border-radius: 7px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <h2>Embedded login (inside iframe)</h2>
+    <p class="sub">This login form lives in a separate document loaded via &lt;iframe&gt;.</p>
+    <form action="javascript:void(0)" method="post" autocomplete="on" id="iframeLogin">
+      <label for="if-username">Username</label>
+      <input type="text" id="if-username" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="you@example.com">
+      <label for="if-password">Password</label>
+      <input type="password" id="if-password" name="password" autocomplete="current-password" placeholder="Your password">
+      <button type="submit">Sign In</button>
+    </form>
+  </div>
+  <script>
+    document.getElementById('iframeLogin').addEventListener('submit', function (e) {
+      e.preventDefault();
+      alert('Mock iframe login submitted (nothing was sent).');
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adversarial: Social "Tag people" picker</title>
+  <link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+  <div class="page">
+    <h1>Social "Tag people" picker</h1>
+    <p class="scenario-sub">Reproduces the exact reported bug: the extension wrongly appeared on Instagram's <em>Tag: [Search]</em> box.</p>
+
+    <div class="expect">Correct behavior: NO autofill dropdown should appear on this field. There is no password anywhere on this page and none of these inputs are logins.</div>
+
+    <div class="card">
+      <h2>1. Instagram-style tag search (formless)</h2>
+      <p class="hint">A <code>type="text"</code> input with <code>placeholder="Search"</code> and <code>aria-label="Tag people"</code> floating in a plain <code>&lt;div&gt;</code> — no <code>&lt;form&gt;</code>, no password on the page. This is the literal repro of the reported false-positive.</p>
+      <div class="tag-modal">
+        <div class="tag-input-row">
+          <span class="search-icon">&#128269;</span>
+          <input type="text" id="tag-search" placeholder="Search" aria-label="Tag people">
+        </div>
+        <div class="result"><span class="avatar"></span><span>@example_user</span></div>
+        <div class="result"><span class="avatar"></span><span>@another_person</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. Combobox variant</h2>
+      <p class="hint">Same picker built as an ARIA combobox: <code>role="combobox"</code>, <code>aria-expanded="false"</code>, <code>placeholder="Search"</code>. Common in React tag/mention widgets.</p>
+      <div class="tag-modal">
+        <div class="tag-input-row">
+          <span class="search-icon">&#128269;</span>
+          <input type="text" id="tag-combobox" role="combobox" aria-expanded="false"
+                 aria-autocomplete="list" aria-controls="tag-listbox"
+                 placeholder="Search" aria-label="Add people">
+        </div>
+        <div class="result" id="tag-listbox" role="listbox">
+          <span class="avatar"></span><span>@friend_one</span>
+        </div>
+      </div>
+    </div>
+
+    <a class="backlink" href="index.html">&larr; Back to adversarial index</a>
+  </div>
+
+  <footer>Inert mock page &middot; no network, no submission.</footer>
+</body>
+</html>

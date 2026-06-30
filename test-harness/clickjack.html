@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clickjacking defense test</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: 15px/1.5 -apple-system, system-ui, sans-serif; margin: 0; background: #f4f5f7; color: #111; }
+    @media (prefers-color-scheme: dark){ body{background:#16181c;color:#eee} .card{background:#21242b!important} }
+    .wrap { max-width: 560px; margin: 40px auto; padding: 0 16px; }
+    .card { background:#fff; border:1px solid rgba(128,128,128,.2); border-radius:12px; padding: 22px; }
+    h1 { font-size: 20px; }
+    .hint { color:#777; font-size:14px; }
+    label { display:block; font-weight:600; margin: 16px 0 5px; }
+    input { width:100%; padding:10px 12px; font-size:15px; border:1px solid rgba(128,128,128,.4); border-radius:8px; background:transparent; color:inherit; }
+    .verdict { margin-top: 22px; padding: 14px 16px; border-radius: 10px; font-weight: 600; }
+    .pass { background:#d4f5dd; color:#137a37; border:1px solid #9adcae; }
+    .fail { background:#ffe0e0; color:#c0392b; border:1px solid #e6a8a8; }
+    .pending { background:#eee; color:#555; }
+    @media (prefers-color-scheme: dark){ .pending{background:#2a2d33;color:#bbb} }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Clickjacking defense</h1>
+    <p class="hint">
+      The <b>username</b> below is visible. There is also a <b>password field hidden
+      offscreen</b> (an attacker trick). A safe manager fills only the visible field.
+      <b>Test:</b> click the username, choose your login, let it fill. The banner
+      below turns <span style="color:#137a37">green</span> if the hidden password
+      stayed empty, <span style="color:#c0392b">red</span> if it got filled.
+    </p>
+
+    <form id="f" action="javascript:void(0)">
+      <label for="u">Username (visible)</label>
+      <input type="text" id="u" name="username" autocomplete="username" placeholder="you@example.com">
+      <!-- attacker-hidden password: offscreen, tiny, transparent -->
+      <input type="password" id="p" name="password" autocomplete="current-password"
+             style="position:absolute; left:-9999px; top:0; opacity:0; width:1px; height:1px" tabindex="-1" aria-hidden="true">
+    </form>
+
+    <div id="verdict" class="verdict pending">Waiting — fill the username above…</div>
+  </div>
+</div>
+
+<script>
+  const u = document.getElementById("u");
+  const p = document.getElementById("p");
+  const v = document.getElementById("verdict");
+  function evaluate() {
+    const userFilled = u.value.trim() !== "";
+    const hiddenFilled = p.value.trim() !== "";
+    if (!userFilled && !hiddenFilled) {
+      v.className = "verdict pending";
+      v.textContent = "Waiting — fill the username above…";
+    } else if (hiddenFilled) {
+      v.className = "verdict fail";
+      v.textContent = "FAIL — the hidden password field was filled. A clickjacking attack would capture it.";
+    } else {
+      v.className = "verdict pass";
+      v.textContent = "PASS — username filled, hidden password stayed empty. Clickjacking defense works.";
+    }
+  }
+  for (const el of [u, p]) {
+    el.addEventListener("input", evaluate);
+    el.addEventListener("change", evaluate);
+  }
+  let n = 0; const t = setInterval(() => { evaluate(); if (++n > 40) clearInterval(t); }, 500);
+</script>
+</body>
+</html>

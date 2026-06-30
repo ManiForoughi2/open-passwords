@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adversarial: Edit profile settings</title>
+  <link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+  <div class="page">
+    <h1>Edit profile / account settings</h1>
+    <p class="scenario-sub">Reproduces an "edit your profile" settings form (already logged in).</p>
+
+    <div class="expect">
+      Correct behavior: NO autofill dropdown should appear here. The user is editing their profile, not logging in. There is a name, an email, and a phone field &mdash; but NO password field, so none of these are login fields.
+    </div>
+
+    <div class="card">
+      <h2>Your details</h2>
+      <p class="hint">Name, email, and phone in a settings form with no password. The <code>email</code> and <code>phone</code> fields look username-ish, but with no password in the form they are profile fields, not a login.</p>
+      <form action="javascript:void(0)">
+        <div class="field">
+          <label for="display-name">Display name</label>
+          <input type="text" id="display-name" name="name" autocomplete="name" placeholder="Jane Doe" value="">
+        </div>
+        <div class="field">
+          <label for="profile-email">Email</label>
+          <input type="email" id="profile-email" name="email" autocomplete="email" placeholder="jane@example.com" value="">
+        </div>
+        <div class="field">
+          <label for="profile-phone">Phone</label>
+          <input type="tel" id="profile-phone" name="phone" autocomplete="tel" placeholder="(555) 123-4567" value="">
+        </div>
+        <button type="button">Save changes</button>
+      </form>
+    </div>
+
+    <a class="backlink" href="index.html">&larr; Back to adversarial index</a>
+  </div>
+
+  <footer>Inert mock page &middot; no network, no submission.</footer>
+</body>
+</html>

@@ -1,0 +1,16 @@
+Open Passwords
+Copyright 2026 the Open Passwords contributors
+
+This product reimplements the Apple Passwords browser-extension native-messaging
+protocol (SRP-6a handshake + AES-GCM session). The protocol implementation in
+src/srp.js, src/crypto.js, and src/protocol.js is derived from:
+
+  icloud-passwords-firefox
+  https://github.com/au2001/icloud-passwords-firefox
+  Copyright (c) au2001, licensed under the Apache License, Version 2.0.
+
+A copy of the Apache License 2.0 is available at:
+  https://www.apache.org/licenses/LICENSE-2.0
+
+"Apple", "iCloud", "iCloud Keychain", and "Passwords" are trademarks of Apple
+Inc. This project is not affiliated with, authorized, or endorsed by Apple.

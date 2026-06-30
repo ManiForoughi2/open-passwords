@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acme Cloud - Verify Code</title>
+  <style>
+    :root { --brand: #2b6cb0; --bg: #f3f4f6; --card: #ffffff; --text: #1f2937; --muted: #6b7280; --border: #d1d5db; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); }
+    .scenario-banner { background: #f0fdf4; border-bottom: 1px solid #bbf7d0; padding: 10px 16px; font-size: 13px; color: #166534; }
+    .scenario-banner b { color: #14532d; }
+    .wrap { max-width: 460px; margin: 48px auto; padding: 0 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,.08); text-align: center; }
+    .logo { font-size: 22px; font-weight: 700; color: var(--brand); margin-bottom: 12px; }
+    h1 { font-size: 20px; margin: 8px 0 4px; }
+    .sub { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
+    .codelabel { display: block; font-size: 15px; font-weight: 600; margin: 22px 0 12px; text-align: left; }
+    .codefield {
+      width: 100%; padding: 14px 16px; font-size: 26px; font-weight: 600; letter-spacing: 10px;
+      text-align: center; border: 1px solid var(--border); border-radius: 10px; background: #fff; color: var(--text);
+    }
+    .codefield:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(43,108,176,.15); }
+    button { width: 100%; margin-top: 22px; padding: 12px; font-size: 15px; font-weight: 600; color: #fff; background: var(--brand); border: 0; border-radius: 8px; cursor: pointer; }
+    button:hover { background: #245a96; }
+    a { color: var(--brand); text-decoration: none; }
+    .resend { font-size: 13px; margin-top: 16px; }
+    .note { font-size: 12px; color: var(--muted); margin-top: 18px; }
+    .home { display: inline-block; margin-top: 18px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="scenario-banner">
+    <b>Scenario: THE CORRECT pattern - one single field.</b> A single <code>&lt;input autocomplete="one-time-code"&gt;</code>.
+    <b>Correct behavior:</b> the extension (and iOS/Safari) should offer the code from SMS in one clean prompt, fill the whole field at once, and never nag.
+    Use this as the contrast/control against <code>otp-multibox.html</code>.
+  </div>
+  <div class="wrap">
+    <div class="card">
+      <div class="logo">Acme Cloud</div>
+      <h1>Verify it's you</h1>
+      <p class="sub">We sent a code to your phone ending in <b>&bull;&bull;42</b>.</p>
+
+      <form id="otpForm" action="javascript:void(0)" method="post" autocomplete="one-time-code">
+        <label class="codelabel" for="otp">Enter the 6-digit code</label>
+        <input class="codefield" type="text" id="otp" name="otp"
+               inputmode="numeric" pattern="[0-9]*" maxlength="6"
+               autocomplete="one-time-code" autocapitalize="none" autocorrect="off" spellcheck="false"
+               placeholder="------" aria-label="6-digit verification code" required>
+        <button type="submit">Verify</button>
+      </form>
+
+      <div class="resend"><a href="#">Resend code</a></div>
+      <p class="note">This is a local mock page. No data is sent anywhere.</p>
+      <a class="home" href="index.html">&larr; Back to test harness</a>
+    </div>
+  </div>
+  <script>
+    var otp = document.getElementById('otp');
+    otp.addEventListener('input', function () {
+      otp.value = otp.value.replace(/[^0-9]/g, '').slice(0, 6);
+    });
+    document.getElementById('otpForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      alert('Mock code submitted: ' + (otp.value || '(empty)') + ' (nothing was sent).');
+    });
+  </script>
+</body>
+</html>

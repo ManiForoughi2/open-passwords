@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adversarial: Compose / DM box</title>
+  <link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+  <div class="page">
+    <h1>Compose / DM / chat box</h1>
+    <p class="scenario-sub">Reproduces messaging compose fields (Messenger, Slack, WhatsApp Web, X DMs).</p>
+
+    <div class="expect">Correct behavior: NO autofill dropdown should appear on any of these fields. No <code>&lt;form&gt;</code> and no password exist on this page.</div>
+
+    <div class="card">
+      <h2>1. Single-line message input</h2>
+      <p class="hint">A formless <code>type="text"</code> with <code>placeholder="Message..."</code> and <code>aria-label="Message"</code> — the classic chat send bar.</p>
+      <div class="compose-bar">
+        <input type="text" id="dm-input" placeholder="Message..." aria-label="Message" autocomplete="off">
+        <button type="button">Send</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. Multi-line textarea compose</h2>
+      <p class="hint">A <code>&lt;textarea&gt;</code> for longer messages/posts. The extension fills <code>&lt;input&gt;</code> usernames + password inputs only, but the dropdown must also never appear here.</p>
+      <textarea id="compose-textarea" placeholder="Write a message" aria-label="Write a message"></textarea>
+    </div>
+
+    <div class="card">
+      <h2>3. Contenteditable compose div</h2>
+      <p class="hint">A <code>contenteditable</code> div, as used by Slack/Messenger rich composers. Not an <code>&lt;input&gt;</code> at all, so it must never be treated as a login field.</p>
+      <div class="editable" id="compose-editable" contenteditable="true"
+           role="textbox" aria-label="Message"
+           data-placeholder="Type a message&hellip;"></div>
+    </div>
+
+    <a class="backlink" href="index.html">&larr; Back to adversarial index</a>
+  </div>
+
+  <footer>Inert mock page &middot; no network, no submission.</footer>
+</body>
+</html>

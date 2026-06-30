@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adversarial: Site search bar</title>
+  <link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+  <nav class="topbar">
+    <span class="brand">ExampleShop</span>
+    <!-- Real-world header search: NOT inside any form. -->
+    <div class="search-wrap">
+      <span class="search-icon">&#128269;</span>
+      <input type="search" id="header-search" placeholder="Search" aria-label="Search products" autocomplete="off">
+    </div>
+  </nav>
+
+  <div class="page">
+    <h1>Site search bar</h1>
+    <p class="scenario-sub">Reproduces a typical e-commerce / docs header search input.</p>
+
+    <div class="expect">Correct behavior: NO autofill dropdown should appear on this field.</div>
+
+    <div class="card">
+      <h2>1. Formless search input (header)</h2>
+      <p class="hint">A bare <code>&lt;input type="search"&gt;</code> with no surrounding <code>&lt;form&gt;</code> (see the nav bar above). Search is the single most common non-login text field on the web.</p>
+      <div class="search-wrap">
+        <span class="search-icon">&#128269;</span>
+        <input type="search" id="inline-search" placeholder="Search" aria-label="Search">
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. Search inside <code>&lt;form role="search"&gt;</code></h2>
+      <p class="hint">Many sites wrap search in a form so Enter submits. The <code>role="search"</code> and the lack of any password field should keep autofill away.</p>
+      <form role="search" action="javascript:void(0)" autocomplete="off">
+        <div class="search-wrap">
+          <span class="search-icon">&#128269;</span>
+          <input type="search" id="form-search" name="q" placeholder="Search the site" aria-label="Search the site">
+        </div>
+      </form>
+    </div>
+
+    <a class="backlink" href="index.html">&larr; Back to adversarial index</a>
+  </div>
+
+  <footer>Inert mock page &middot; no network, no submission.</footer>
+</body>
+</html>

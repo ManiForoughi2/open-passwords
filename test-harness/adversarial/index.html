@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adversarial no-autofill test pages</title>
+  <link rel="stylesheet" href="_shared.css">
+  <style>
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .item {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 18px; text-decoration: none; color: inherit; display: block;
+    }
+    .item:hover { box-shadow: 0 6px 18px rgba(0,0,0,.08); }
+    .item .name { font-weight: 700; color: var(--brand); font-size: 15px; }
+    .item .file { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted); margin: 2px 0 6px; }
+    .item .desc { font-size: 13px; margin: 0; color: #374151; }
+    .badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+    .badge.no { background: #fee2e2; color: #991b1b; }
+    .badge.split { background: #fef3c7; color: #92400e; }
+    .full { grid-column: 1 / -1; }
+    @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>Adversarial test pages &mdash; NO autofill expected</h1>
+    <p class="scenario-sub">
+      Real-world NON-login text inputs. These verify the password-manager extension does NOT show its
+      autofill dropdown where it shouldn't. They reproduce the reported bug where the extension wrongly
+      appeared on an Instagram "Tag: [Search]" box.
+    </p>
+
+    <div class="expect">
+      On every page below (except where noted), the correct behavior is: NO autofill dropdown should appear on the input.
+      The one exception is <code>mixed-page.html</code>, which deliberately also contains a REAL login form where the dropdown SHOULD appear.
+    </div>
+
+    <div class="grid">
+      <a class="item" href="search-bar.html">
+        <div class="name">Site search bar <span class="badge no">NO DROPDOWN</span></div>
+        <div class="file">search-bar.html</div>
+        <p class="desc">A formless <code>type="search"</code> plus one inside <code>&lt;form role="search"&gt;</code>. The commonest non-login field.</p>
+      </a>
+
+      <a class="item" href="social-tag.html">
+        <div class="name">Social "Tag people" picker <span class="badge no">NO DROPDOWN</span></div>
+        <div class="file">social-tag.html</div>
+        <p class="desc">The literal repro: formless <code>placeholder="Search"</code> / <code>aria-label="Tag people"</code>, plus an ARIA combobox variant.</p>
+      </a>
+
+      <a class="item" href="compose-message.html">
+        <div class="name">Compose / DM box <span class="badge no">NO DROPDOWN</span></div>
+        <div class="file">compose-message.html</div>
+        <p class="desc">Chat send input, a <code>&lt;textarea&gt;</code>, and a <code>contenteditable</code> composer.</p>
+      </a>
+
+      <a class="item" href="comment-box.html">
+        <div class="name">Comment / reply field <span class="badge no">NO DROPDOWN</span></div>
+        <div class="file">comment-box.html</div>
+        <p class="desc">An <code>name="comment"</code> add-a-comment input and a <code>name="reply"</code> reply field.</p>
+      </a>
+
+      <a class="item" href="checkout-address.html">
+        <div class="name">Checkout / shipping address <span class="badge no">NO DROPDOWN</span></div>
+        <div class="file">checkout-address.html</div>
+        <p class="desc">Name/address/city/postal/email with <code>autocomplete</code> address tokens but NO password &mdash; address autofill, not login.</p>
+      </a>
+
+      <a class="item" href="newsletter.html">
+        <div class="name">Newsletter signup <span class="badge no">NO DROPDOWN</span></div>
+        <div class="file">newsletter.html</div>
+        <p class="desc">A lone email field in a <code>&lt;form autocomplete="off"&gt;</code> &mdash; subscription, not login.</p>
+      </a>
+
+      <a class="item" href="profile-edit.html">
+        <div class="name">Edit profile settings <span class="badge no">NO DROPDOWN</span></div>
+        <div class="file">profile-edit.html</div>
+        <p class="desc">Name/email/phone settings form with NO password &mdash; editing profile, not logging in.</p>
+      </a>
+
+      <a class="item full" href="mixed-page.html">
+        <div class="name">Mixed page: search + real login <span class="badge split">SPLIT BEHAVIOR</span></div>
+        <div class="file">mixed-page.html</div>
+        <p class="desc">A header search box (NO dropdown) AND a real username+password login form lower down (dropdown SHOULD appear). The discrimination test.</p>
+      </a>
+    </div>
+
+    <p class="scenario-sub" style="margin-top:24px;">
+      See <code>NOTES.md</code> in this folder for the per-page list of exact selectors that must show NO dropdown
+      (and, for the mixed page, which ones SHOULD).
+    </p>
+  </div>
+
+  <footer>Inert mock pages &middot; no network, no submission, no real credentials.</footer>
+</body>
+</html>

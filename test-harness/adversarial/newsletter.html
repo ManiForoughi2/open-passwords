@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adversarial: Newsletter signup</title>
+  <link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+  <div class="page">
+    <h1>Newsletter email signup</h1>
+    <p class="scenario-sub">Reproduces a standalone "subscribe to our newsletter" email field.</p>
+
+    <div class="expect">
+      Correct behavior: NO autofill dropdown should appear here. The field is an email box, which looks username-ish, but the form is <code>autocomplete="off"</code> and has NO password &mdash; it is a subscription, not a login.
+    </div>
+
+    <div class="card">
+      <h2>Subscribe</h2>
+      <p class="hint">A lone <code>type="email"</code> named <code>newsletter_email</code> inside a <code>&lt;form autocomplete="off"&gt;</code>. This is the canonical false-positive: an email field that is not a login.</p>
+      <form autocomplete="off" action="javascript:void(0)">
+        <div class="field">
+          <label for="newsletter_email">Get our weekly digest</label>
+          <input type="email" id="newsletter_email" name="newsletter_email"
+                 placeholder="you@example.com" aria-label="Email address">
+        </div>
+        <button type="button">Subscribe</button>
+      </form>
+    </div>
+
+    <a class="backlink" href="index.html">&larr; Back to adversarial index</a>
+  </div>
+
+  <footer>Inert mock page &middot; no network, no submission.</footer>
+</body>
+</html>

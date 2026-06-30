@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adversarial: Checkout / shipping address</title>
+  <link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+  <div class="page">
+    <h1>Checkout / shipping address form</h1>
+    <p class="scenario-sub">Reproduces a guest-checkout address form using standard <code>autocomplete</code> address tokens.</p>
+
+    <div class="expect">
+      Correct behavior: NO <em>login</em> autofill dropdown should appear here. This is address-autofill territory (a job for the browser's address autofill), not a login. Note the <code>email</code> field carries <code>autocomplete="email"</code> but there is NO password field in this form, so it must NOT be offered a saved login.
+    </div>
+
+    <div class="card">
+      <h2>Shipping details</h2>
+      <p class="hint">A typical guest checkout: name, address, city, postal code, email. <code>autocomplete</code> tokens like <code>shipping address-line1</code> and <code>email</code> are present, but there is no password &mdash; this is not a login.</p>
+      <form action="javascript:void(0)">
+        <div class="row">
+          <div class="field">
+            <label for="first-name">First name</label>
+            <input type="text" id="first-name" name="first-name" autocomplete="shipping given-name" placeholder="Jane">
+          </div>
+          <div class="field">
+            <label for="last-name">Last name</label>
+            <input type="text" id="last-name" name="last-name" autocomplete="shipping family-name" placeholder="Doe">
+          </div>
+        </div>
+        <div class="field">
+          <label for="address">Address</label>
+          <input type="text" id="address" name="address" autocomplete="shipping address-line1" placeholder="123 Main St">
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="city">City</label>
+            <input type="text" id="city" name="city" autocomplete="shipping address-level2" placeholder="Springfield">
+          </div>
+          <div class="field">
+            <label for="postal-code">Postal code</label>
+            <input type="text" id="postal-code" name="postal-code" autocomplete="shipping postal-code" inputmode="numeric" placeholder="00000">
+          </div>
+        </div>
+        <div class="field">
+          <label for="email">Email (for receipt)</label>
+          <input type="email" id="email" name="email" autocomplete="email" placeholder="jane@example.com">
+        </div>
+        <button type="button">Continue to payment</button>
+      </form>
+    </div>
+
+    <a class="backlink" href="index.html">&larr; Back to adversarial index</a>
+  </div>
+
+  <footer>Inert mock page &middot; no network, no submission.</footer>
+</body>
+</html>

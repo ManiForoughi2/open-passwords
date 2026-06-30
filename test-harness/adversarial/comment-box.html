@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adversarial: Comment / reply field</title>
+  <link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+  <div class="page">
+    <h1>Comment / reply field</h1>
+    <p class="scenario-sub">Reproduces blog/news/social comment + reply inputs (YouTube, Disqus, Reddit).</p>
+
+    <div class="expect">Correct behavior: NO autofill dropdown should appear on any of these fields. No password field exists on this page.</div>
+
+    <div class="card">
+      <h2>1. Add-a-comment input</h2>
+      <p class="hint">A <code>type="text"</code> with <code>name="comment"</code> and <code>placeholder="Add a comment..."</code>. The word "comment" must not be mistaken for a login field.</p>
+      <form action="javascript:void(0)" autocomplete="off">
+        <div class="field">
+          <input type="text" id="comment-input" name="comment" placeholder="Add a comment..." aria-label="Add a comment">
+        </div>
+        <button type="button">Post</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>2. Reply field</h2>
+      <p class="hint">A nested reply box: <code>type="text"</code> with <code>name="reply"</code>. Threaded replies are everywhere on social/forum sites.</p>
+      <div class="result" style="padding-left:0;">
+        <span class="avatar"></span>
+        <div style="flex:1;">
+          <strong>@someone</strong> wrote a comment.
+          <div class="field" style="margin-top:8px;">
+            <input type="text" id="reply-input" name="reply" placeholder="Reply..." aria-label="Reply">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <a class="backlink" href="index.html">&larr; Back to adversarial index</a>
+  </div>
+
+  <footer>Inert mock page &middot; no network, no submission.</footer>
+</body>
+</html>

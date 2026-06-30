@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Open Passwords - Test Bench</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body { font: 15px/1.5 -apple-system, system-ui, sans-serif; margin: 0; background: #f4f5f7; color: #111; }
+    @media (prefers-color-scheme: dark) { body { background: #16181c; color: #eee; } .card { background: #21242b !important; } }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 80px; }
+    h1 { font-size: 22px; }
+    .lead { color: #666; margin-bottom: 24px; }
+    .card { background: #fff; border: 1px solid rgba(128,128,128,.2); border-radius: 12px; padding: 18px 20px; margin: 16px 0; }
+    .card h2 { font-size: 16px; margin: 0 0 4px; }
+    .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; vertical-align: middle; margin-left: 8px; }
+    .ok { background: #d4f5dd; color: #137a37; }
+    .no { background: #ffe0e0; color: #c0392b; }
+    .hint { color: #777; font-size: 13px; margin: 6px 0 12px; }
+    label { display: block; font-weight: 600; font-size: 13px; margin: 12px 0 4px; }
+    input { width: 100%; padding: 10px 12px; font-size: 15px; border: 1px solid rgba(128,128,128,.4); border-radius: 8px; background: transparent; color: inherit; }
+    button { font: inherit; cursor: pointer; padding: 10px 16px; border-radius: 8px; border: none; background: #2563eb; color: #fff; font-weight: 600; margin-top: 12px; }
+    .row { display: flex; gap: 10px; align-items: flex-end; }
+    .row > div { flex: 1; }
+    #log { position: fixed; bottom: 0; left: 0; right: 0; max-height: 30vh; overflow: auto; background: #0b0d10; color: #9fe6a0; font: 12px/1.4 ui-monospace, monospace; padding: 10px 14px; border-top: 1px solid #333; }
+    #log .t { color: #5f91ff; }
+    #log .w { color: #ffd479; }
+    #log .e { color: #ff7b72; }
+    .clearlog { position: fixed; bottom: 8px; right: 12px; background: #333; padding: 4px 10px; font-size: 11px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Open Passwords - Test Bench</h1>
+  <p class="lead">
+    Load <b>Open Passwords v0.6</b>, make sure you have a saved login for
+    <b>openpw.test</b> in the Passwords app, then work down the page. The black bar
+    at the bottom logs every dropdown, fill, and input event as it happens.
+  </p>
+
+  <!-- POSITIVE: standard login -->
+  <div class="card">
+    <h2>1. Standard login <span class="badge ok">dropdown SHOULD show + fill</span></h2>
+    <p class="hint">Click the username field. You should see "Click to autofill". Click it - both fields fill (Touch ID prompt is expected), and the log shows input+change events.</p>
+    <form id="f-standard" action="javascript:void(0)">
+      <label for="u1">Username</label>
+      <input type="text" id="u1" name="username" autocomplete="username" placeholder="you@example.com">
+      <label for="p1">Password</label>
+      <input type="password" id="p1" name="password" autocomplete="current-password" placeholder="Your password">
+      <button type="submit">Sign In</button>
+    </form>
+  </div>
+
+  <!-- POSITIVE: two-step -->
+  <div class="card">
+    <h2>2. Two-step login <span class="badge ok">dropdown SHOULD show</span></h2>
+    <p class="hint">Username alone (Google/Microsoft style). The dropdown should still appear because the field is autocomplete="username".</p>
+    <form id="f-twostep" action="javascript:void(0)">
+      <label for="u2">Username</label>
+      <input type="text" id="u2" name="username" autocomplete="username" placeholder="you@example.com">
+      <button type="submit">Next</button>
+    </form>
+  </div>
+
+  <!-- NEGATIVE: search -->
+  <div class="card">
+    <h2>3. Search box <span class="badge no">dropdown should NOT show</span></h2>
+    <p class="hint">A site search. Focus it - nothing should appear (this is the Instagram-tag class of bug).</p>
+    <input type="search" id="s1" placeholder="Search" aria-label="Search">
+  </div>
+
+  <!-- NEGATIVE: tag/combobox (Instagram repro) -->
+  <div class="card">
+    <h2>4. Tag picker (Instagram repro) <span class="badge no">dropdown should NOT show</span></h2>
+    <p class="hint">Formless combobox with placeholder "Search" - the exact field that used to wrongly trigger.</p>
+    <input type="text" id="tag1" role="combobox" aria-autocomplete="list" placeholder="Search" aria-label="Tag people">
+  </div>
+
+  <!-- NEGATIVE: comment -->
+  <div class="card">
+    <h2>5. Comment box <span class="badge no">dropdown should NOT show</span></h2>
+    <p class="hint">A comment field. No password on this card's form, so no login offer.</p>
+    <input type="text" id="c1" name="comment" placeholder="Add a comment...">
+  </div>
+
+  <!-- NEGATIVE: newsletter email -->
+  <div class="card">
+    <h2>6. Newsletter email <span class="badge no">dropdown should NOT show</span></h2>
+    <p class="hint">A lone email box, no password - should be treated as a newsletter, not a login.</p>
+    <form action="javascript:void(0)" autocomplete="off">
+      <input type="email" id="n1" name="newsletter_email" placeholder="you@example.com">
+    </form>
+  </div>
+</div>
+
+<div id="log"></div>
+<button class="clearlog" onclick="document.querySelectorAll('#log .line').forEach(e=>e.remove())">clear log</button>
+
+<script>
+  const log = document.getElementById("log");
+  function L(msg, cls) {
+    const d = document.createElement("div");
+    d.className = "line " + (cls || "");
+    const t = new Date().toLocaleTimeString();
+    d.innerHTML = '<span class="t">' + t + '</span>  ' + msg;
+    log.appendChild(d);
+    log.scrollTop = log.scrollHeight;
+  }
+  L("Test bench ready. Focus a field above.");
+
+  // Log focus on every input so you can see which fields are being evaluated.
+  document.addEventListener("focusin", (e) => {
+    if (e.target.tagName === "INPUT") {
+      const t = e.target;
+      L("focus -> #" + (t.id || "?") + " (type=" + t.type + (t.name ? ", name=" + t.name : "") + ")", "t");
+    }
+  }, true);
+
+  // Watch the Open Passwords dropdown appear/disappear.
+  const obs = new MutationObserver((muts) => {
+    for (const m of muts) {
+      for (const n of m.addedNodes) {
+        if (n.nodeType === 1 && n.getAttribute && n.getAttribute("data-open-passwords")) {
+          const txt = n.innerText.replace(/\s+/g, " ").trim();
+          L("DROPDOWN shown: \"" + txt + "\"", "w");
+        }
+      }
+    }
+  });
+  obs.observe(document.body, { childList: true });
+
+  // Log input/change events on the credential fields (proves the fill is "seen").
+  for (const id of ["u1", "p1", "u2"]) {
+    const el = document.getElementById(id);
+    el.addEventListener("input", () => L("input event on #" + id + " value=\"" + (el.type === "password" ? "***" : el.value) + "\""));
+    el.addEventListener("change", () => L("change event on #" + id));
+  }
+
+  // Warn if a NEGATIVE field somehow gets filled or shows a dropdown.
+  for (const id of ["s1", "tag1", "c1", "n1"]) {
+    const el = document.getElementById(id);
+    el.addEventListener("input", () => L("UNEXPECTED input on negative field #" + id + " (should not be filled!)", "e"));
+  }
+
+  // Form submit feedback.
+  document.querySelectorAll("form").forEach((f) =>
+    f.addEventListener("submit", () => L("submit -> " + f.id + " (username=\"" + (f.querySelector('[name=username]')?.value || "") + "\")"))
+  );
+</script>
+</body>
+</html>

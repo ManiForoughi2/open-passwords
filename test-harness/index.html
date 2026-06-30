@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Password Manager Test Harness</title>
+  <style>
+    :root { --brand: #2b6cb0; --bg: #f3f4f6; --card: #ffffff; --text: #1f2937; --muted: #6b7280; --border: #d1d5db; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); }
+    .hero { background: linear-gradient(135deg, #1e3a5f, #2b6cb0); color: #fff; padding: 36px 16px; }
+    .hero-inner { max-width: 860px; margin: 0 auto; }
+    .hero h1 { margin: 0 0 8px; font-size: 26px; }
+    .hero p { margin: 0; font-size: 15px; color: #dbe9f7; max-width: 640px; }
+    .wrap { max-width: 860px; margin: 28px auto; padding: 0 16px; }
+    .howto { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 16px 18px; font-size: 14px; color: #78350f; margin-bottom: 24px; }
+    .howto code { background: #fef3c7; padding: 1px 6px; border-radius: 4px; }
+    .howto ol { margin: 8px 0 0; padding-left: 20px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .item { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; text-decoration: none; color: inherit; display: block; transition: box-shadow .12s, transform .12s; }
+    .item:hover { box-shadow: 0 6px 18px rgba(0,0,0,.10); transform: translateY(-1px); }
+    .item .name { font-weight: 700; font-size: 16px; color: var(--brand); display: flex; align-items: center; gap: 8px; }
+    .item .file { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); margin: 2px 0 8px; }
+    .item .desc { font-size: 13px; color: #374151; margin: 0; }
+    .badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+    .badge.bug { background: #fee2e2; color: #991b1b; }
+    .badge.good { background: #dcfce7; color: #166534; }
+    .badge.edge { background: #fef3c7; color: #92400e; }
+    .full { grid-column: 1 / -1; }
+    .compare { margin-top: 24px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px; padding: 16px 18px; font-size: 14px; }
+    .compare a { color: var(--brand); }
+    footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px; }
+    @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <div class="hero-inner">
+      <h1>Password Manager Test Harness</h1>
+      <p>Realistic mock pages for comparing two Chrome extensions side-by-side: Apple's official iCloud Passwords extension vs. an open-source alternative. Load both, walk each page, and record what each one does.</p>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="howto">
+      <b>How to use this harness</b>
+      <ol>
+        <li>Serve this folder: <code>./serve.sh</code> (or <code>python3 -m http.server 8765</code>), then open <code>http://localhost:8765/</code>.</li>
+        <li>In Chrome, install/enable BOTH extensions. Test them ONE AT A TIME (enable A, run through all pages; then enable B, repeat) to avoid them interfering with each other.</li>
+        <li>Use <code>COMPARISON.md</code> as your checklist and fill in what each extension does.</li>
+      </ol>
+    </div>
+
+    <div class="grid">
+      <a class="item" href="login-standard.html">
+        <div class="name">Standard login</div>
+        <div class="file">login-standard.html</div>
+        <p class="desc">Classic username + <code>current-password</code> form on one view. The bread-and-butter autofill + save-prompt case.</p>
+      </a>
+
+      <a class="item" href="login-twostep.html">
+        <div class="name">Two-step login</div>
+        <div class="file">login-twostep.html</div>
+        <p class="desc">Username first, password revealed by JS on a second view. Tests "username then password" detection on a dynamically shown field.</p>
+      </a>
+
+      <a class="item" href="signup.html">
+        <div class="name">Sign-up</div>
+        <div class="file">signup.html</div>
+        <p class="desc"><code>new-password</code> + confirm. Tests password generation and the save-new-credential prompt (and that it does NOT offer an existing login).</p>
+      </a>
+
+      <a class="item" href="otp-multibox.html">
+        <div class="name">OTP - 6 separate boxes <span class="badge bug">VIRAL BUG</span></div>
+        <div class="file">otp-multibox.html</div>
+        <p class="desc">Six single-char <code>maxlength="1"</code> boxes. The pattern that makes Apple's extension nag with an "Enable AutoFill" balloon on every box. Does the extension show one prompt or six?</p>
+      </a>
+
+      <a class="item" href="otp-singlefield.html">
+        <div class="name">OTP - single field <span class="badge good">CONTROL</span></div>
+        <div class="file">otp-singlefield.html</div>
+        <p class="desc">One <code>one-time-code</code> field - the correct pattern. The control to contrast against the multibox bug.</p>
+      </a>
+
+      <a class="item" href="forum.html">
+        <div class="name">Forum <span class="badge edge">FALSE-POSITIVE</span></div>
+        <div class="file">forum.html</div>
+        <p class="desc">Real login in the header, plus a search box, reply box, topic field, and newsletter email that are NOT logins. Does the extension wrongly offer to fill them?</p>
+      </a>
+
+      <a class="item full" href="tricky.html">
+        <div class="name">Tricky edge cases <span class="badge edge">EDGE</span></div>
+        <div class="file">tricky.html</div>
+        <p class="desc">Four hard cases on one page: a login inside an iframe, a hidden password field, a password field with no name/id, and a login form injected via <code>setTimeout</code> after 1.5s (tests MutationObserver re-scanning).</p>
+      </a>
+    </div>
+
+    <div class="compare">
+      Ready to test? Open <b>COMPARISON.md</b> in this folder for the full step-by-step checklist and a results table to fill in for each extension.
+    </div>
+  </div>
+
+  <footer>Local mock harness - no real credentials, no network calls. Every form is inert.</footer>
+</body>
+</html>

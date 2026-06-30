@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adversarial: Mixed page (search + real login)</title>
+  <link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+  <nav class="topbar">
+    <span class="brand">ExampleApp</span>
+    <!-- Header search: NOT a login. Dropdown must NOT appear here. -->
+    <div class="search-wrap">
+      <span class="search-icon">&#128269;</span>
+      <input type="search" id="header-search" name="q" placeholder="Search" aria-label="Search" autocomplete="off">
+    </div>
+  </nav>
+
+  <div class="page">
+    <h1>Mixed page: search box + real login form</h1>
+    <p class="scenario-sub">The discrimination test: one page with a non-login search box AND a genuine login form.</p>
+
+    <div class="expect">
+      Correct behavior is SPLIT:
+      <br>&bull; NO dropdown on the header <code>#header-search</code> box.
+      <br>&bull; YES &mdash; the dropdown SHOULD appear on the real login <code>#login-username</code> and <code>#login-password</code> fields below.
+    </div>
+
+    <div class="card">
+      <h2>Not a login: page search</h2>
+      <p class="hint">Same formless search input as the header, repeated in the body. No dropdown expected.</p>
+      <div class="search-wrap">
+        <span class="search-icon">&#128269;</span>
+        <input type="search" id="body-search" placeholder="Search articles" aria-label="Search articles">
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Real login form</h2>
+      <p class="hint">A genuine username + <code>current-password</code> form. The dropdown SHOULD appear on both fields &mdash; this is the positive control that proves the extension still works when it should.</p>
+      <form action="javascript:void(0)" id="login-form">
+        <div class="field">
+          <label for="login-username">Username</label>
+          <input type="text" id="login-username" name="username" autocomplete="username" placeholder="you@example.com">
+        </div>
+        <div class="field">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" name="password" autocomplete="current-password" placeholder="Your password">
+        </div>
+        <button type="button">Sign in</button>
+      </form>
+    </div>
+
+    <a class="backlink" href="index.html">&larr; Back to adversarial index</a>
+  </div>
+
+  <footer>Inert mock page &middot; no network, no submission.</footer>
+</body>
+</html>

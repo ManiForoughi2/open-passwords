@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>Open Passwords</title>
+  </head>
+  <body>
+    <header>
+      <img src="../icons/icon48.png" alt="" width="20" height="20" />
+      <h1>Open Passwords</h1>
+      <span id="dot" class="dot" title="status"></span>
+    </header>
+
+    <main>
+      <!-- No native helper -->
+      <section id="view-nohelper" hidden>
+        <p class="msg">
+          Couldn't reach Apple's password helper. This needs macOS 14+ with the
+          Passwords app, and the extension must run with Apple's accepted ID.
+        </p>
+      </section>
+
+      <!-- Needs PIN -->
+      <section id="view-pin" hidden>
+        <p class="msg">
+          A verification code was generated on your Mac. Enter it to grant access.
+        </p>
+        <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" />
+        <button id="verify" class="primary">Unlock</button>
+        <button id="newcode" class="link">Request a new code</button>
+        <p id="pin-error" class="error" hidden></p>
+      </section>
+
+      <!-- Connecting -->
+      <section id="view-connecting" hidden>
+        <p class="msg">Connecting to Apple Passwords…</p>
+      </section>
+
+      <!-- Unlocked: logins for current site -->
+      <section id="view-unlocked" hidden>
+        <p id="site" class="site"></p>
+        <ul id="logins" class="logins"></ul>
+        <p id="nologins" class="msg" hidden>No saved passwords for this site.</p>
+      </section>
+    </main>
+
+    <!-- Footer: help turn off Chrome's competing password dropdown -->
+    <footer>
+      <button id="chrome-guide" class="link">Turn off Chrome passwords</button>
+      <div id="chrome-steps" class="steps" hidden>
+        <p>Chrome's own password popup can't be turned off by an extension — only in Chrome's settings. To stop seeing two dropdowns:</p>
+        <ol>
+          <li>Click <b>Open Chrome settings</b> below.</li>
+          <li>Open <b>Google Password Manager → Settings</b>.</li>
+          <li>Turn <b>off</b> “Offer to save passwords” and “Auto Sign-in”.</li>
+        </ol>
+        <button id="open-chrome-settings" class="primary">Open Chrome settings</button>
+      </div>
+    </footer>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
