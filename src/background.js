@@ -80,11 +80,23 @@ function registrableHost(u) {
   }
 }
 
+// loopback (secure context) and reserved .test / .localhost TLDs (RFC 6761, never real
+// sites) are the only non-HTTPS origins we treat as fillable/saveable
+function isLocalDevHost(host) {
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "[::1]" ||
+    host?.endsWith(".localhost") ||
+    host?.endsWith(".test")
+  );
+}
+
 // messages a content script may send. operate only on the sender's own tab/origin
 // and never return a password to the page (inlineFill pushes straight to the fill
 // handler, page script never sees it). verifyPin takes a PIN guess and returns lock
 // state only, never vault data
-const CONTENT_ALLOWED = new Set(["inlineLogins", "inlineFill", "requestChallenge", "verifyPin"]);
+const CONTENT_ALLOWED = new Set(["inlineLogins", "inlineFill", "requestChallenge", "verifyPin", "maybeSave"]);
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
@@ -155,6 +167,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true, filled });
           break;
         }
+
+        case "maybeSave": {
+          // a content script offering credentials the user just submitted. the native
+          // macOS prompt is the real gate (nothing is written to the vault without the
+          // user confirming there), so we only forward. pin to the sender frame's own
+          // origin, never the top tab's
+          const frameUrl = sender.url;
+          if (!frameUrl || sender.tab?.id == null) {
+            return sendResponse({ ok: false, error: "no frame" });
+          }
+          const host = registrableHost(frameUrl);
+          if (!/^https:\/\//i.test(frameUrl) && !isLocalDevHost(host)) {
+            return sendResponse({ ok: false, error: "refusing to save from a non-HTTPS frame" });
+          }
+          if (!msg.password) return sendResponse({ ok: false, error: "no password" });
+          await ensureConnected();
+          if (!client.ready) return sendResponse({ ok: true, saved: false, locked: true });
+          await client.saveLogin(sender.tab.id, frameUrl, msg.username ?? "", msg.password);
+          sendResponse({ ok: true, saved: true });
+          break;
+        }
+
         case "getState":
           await ensureConnected();
           sendResponse({ ok: true, state: client.state });
