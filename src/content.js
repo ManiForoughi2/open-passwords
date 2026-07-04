@@ -279,7 +279,7 @@ function buildSuggestionBox(field) {
 
 // locked: PIN field in the dropdown so the user can unlock without leaving the page.
 // background issues a challenge (macos shows the 6-digit code), then verify inline
-async function buildLockedSuggestion(field) {
+async function buildLockedSuggestion(field, onUnlock) {
   const box = buildSuggestionBox(field);
 
   const msg = document.createElement("div");
@@ -341,6 +341,12 @@ async function buildLockedSuggestion(field) {
     }
     verifying = false;
     if (res?.ok && res.state === "unlocked") {
+      // caller wants to resume its own action after unlock (e.g. save the password)
+      if (typeof onUnlock === "function") {
+        removeSuggestion();
+        onUnlock();
+        return;
+      }
       // unlocked: complete the autofill they already asked for - fill directly on a
       // single match, else show the chooser
       cachedLogins = null;
@@ -498,6 +504,118 @@ document.addEventListener(
     // closing now (mousedown before focusin) would race and leave it with no dropdown
     if (e.target instanceof HTMLInputElement && isLoginField(e.target)) return;
     removeSuggestion();
+  },
+  true,
+);
+
+// --- save / update -------------------------------------------------------------
+// offer to store credentials the user submits, like chrome/safari "save password?".
+// we forward the submitted username+password to the helper, which decides add-vs-update
+// and shows the native macOS prompt - nothing is written without the user confirming
+// there. fires only on genuine (isTrusted) user submits
+let lastSaveKey = "";
+let lastSaveAt = 0;
+
+// treat a control as a submit if it is type=submit, or a button whose label reads like
+// a sign-in / sign-up / save action (covers SPA logins with no real <form> submit)
+const SUBMITY_LABEL =
+  /\b(sign[\s-]?in|sign[\s-]?up|log[\s-]?in|register|create[\s-]?account|save|update|change[\s-]?password|continue|next|submit)\b/i;
+
+function isSubmitControl(el) {
+  if (!(el instanceof Element)) return false;
+  const tag = el.tagName.toLowerCase();
+  const type = (el.getAttribute("type") || "").toLowerCase();
+  if ((tag === "button" || tag === "input") && type === "submit") return true;
+  if (tag === "button" && (type === "" || type === "button")) {
+    return SUBMITY_LABEL.test((el.textContent || el.value || attrBlob(el)) ?? "");
+  }
+  return false;
+}
+
+// pick the credential the user submitted within a scope. the "new" password on a
+// change/confirm form is the last password field with a value; the username is the
+// login field just before the first password
+function collectSubmittedCredentials(scope) {
+  const root = scope && scope.querySelectorAll ? scope : document;
+  const inputs = Array.from(root.querySelectorAll("input"));
+  const pws = inputs.filter((i) => isPasswordField(i) && i.value);
+  if (!pws.length) return null;
+  const password = pws[pws.length - 1].value;
+  const firstPw = pws[0];
+  const users = inputs.filter((i) => isUsernameField(i) && i.value);
+  let username = "";
+  if (users.length) {
+    const before = users.filter(
+      (u) => u.compareDocumentPosition(firstPw) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    username = (before.length ? before[before.length - 1] : users[0]).value;
+  }
+  return { username: username.trim(), password };
+}
+
+async function maybeOfferSave(scope) {
+  if (!frameIsSafe()) return;
+  const cred = collectSubmittedCredentials(scope);
+  if (!cred || !cred.password) return;
+  // a submit often fires both a click and a submit event - dedupe identical creds
+  const key = `${location.hostname} ${cred.username} ${cred.password}`;
+  const now = Date.now();
+  if (key === lastSaveKey && now - lastSaveAt < 5000) return;
+  lastSaveKey = key;
+  lastSaveAt = now;
+
+  let res;
+  try {
+    res = await chrome.runtime.sendMessage({
+      type: "maybeSave",
+      username: cred.username,
+      password: cred.password,
+    });
+  } catch {
+    return;
+  }
+  if (res?.ok && res.locked) {
+    // locked at submit time: let the user unlock inline, then save. anchor on the
+    // password field theyre using so the box appears in a sensible spot
+    const field =
+      document.activeElement instanceof HTMLInputElement && isPasswordField(document.activeElement)
+        ? document.activeElement
+        : Array.from(document.querySelectorAll('input[type="password"]')).find(isVisible);
+    if (field) {
+      buildLockedSuggestion(field, () =>
+        chrome.runtime
+          .sendMessage({ type: "maybeSave", username: cred.username, password: cred.password })
+          .catch(() => {}),
+      );
+    }
+  }
+}
+
+document.addEventListener(
+  "submit",
+  (e) => {
+    if (e.isTrusted) maybeOfferSave(e.target);
+  },
+  true,
+);
+document.addEventListener(
+  "click",
+  (e) => {
+    if (!e.isTrusted || !(e.target instanceof Element)) return;
+    const ctrl = e.target.closest("button, input[type=submit], input[type=button]");
+    if (isSubmitControl(ctrl)) maybeOfferSave(ctrl.form || document);
+  },
+  true,
+);
+// Enter inside a login field on a formless (SPA) login
+document.addEventListener(
+  "keydown",
+  (e) => {
+    if (!e.isTrusted || e.key !== "Enter") return;
+    const t = e.target;
+    if (t instanceof HTMLInputElement && (isPasswordField(t) || isUsernameField(t))) {
+      maybeOfferSave(t.form || document);
+    }
   },
   true,
 );

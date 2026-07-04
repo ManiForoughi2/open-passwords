@@ -25,13 +25,14 @@ export const Command = {
   HANDSHAKE: 2,
   GET_LOGIN_NAMES_FOR_URL: 4,
   GET_PASSWORD_FOR_LOGIN_NAME: 5,
+  SET_PASSWORD_FOR_LOGIN_NAME_URL: 6, // save or update a login
   TAB_EVENT: 8,
   PASSWORDS_DISABLED: 9,
   RELOGIN_NEEDED: 10,
   GET_CAPABILITIES: 14,
 };
 
-const Action = { SEARCH: 2, GHOST_SEARCH: 5 };
+const Action = { UPDATE: 1, SEARCH: 2, ADD_NEW: 3, MAYBE_ADD: 4, GHOST_SEARCH: 5 };
 
 export const State = {
   Disconnected: "disconnected",
@@ -301,6 +302,45 @@ export class ApplePasswords {
       }
       if (res.STATUS === QueryStatus.NoResults) return undefined;
       throw queryStatusError(res.STATUS);
+    });
+  }
+
+  // save or update a login in Apple Passwords. cmd 6 with ACT maybeAdd lets the helper
+  // decide add-vs-update and drive the native macOS save prompt (with Touch ID). the
+  // helper's cmd-6 reply carries no decryptable body so we dont parse one - a page can
+  // only ever trigger the OS prompt, never write to the vault silently
+  async saveLogin(tabId, url, username, password) {
+    if (!this.ready) throw new Error("not unlocked");
+    if (!password) throw new Error("no password to save");
+    const { hostname } = new URL(url);
+    return this._withLock(async () => {
+      const sdata = this.session.serialize(
+        await this.session.encrypt({
+          ACT: Action.MAYBE_ADD,
+          URL: "",
+          USR: "",
+          PWD: "",
+          NURL: hostname,
+          NUSR: username ?? "",
+          NPWD: password,
+        }),
+      );
+      const body = {
+        tabId,
+        frameId: 0,
+        payload: {
+          QID: "CmdNewAccount4URL",
+          SMSG: JSON.stringify({ TID: this.session.username, SDATA: sdata }),
+        },
+      };
+      // the ack is empty and user confirmation happens in the native prompt, so a
+      // missing or slow ack is not an error
+      try {
+        await this._send(Command.SET_PASSWORD_FOR_LOGIN_NAME_URL, body, 3000);
+      } catch (e) {
+        if (!/timeout/i.test(String(e?.message ?? e))) throw e;
+      }
+      return true;
     });
   }
 
