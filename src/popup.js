@@ -105,6 +105,10 @@ document.getElementById("verify").addEventListener("click", async () => {
 pinInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") document.getElementById("verify").click();
 });
+// auto-submit once all 6 digits are in, like apple - no Enter needed
+pinInput.addEventListener("input", () => {
+  if (pinInput.value.trim().length === 6) document.getElementById("verify").click();
+});
 
 document.getElementById("newcode").addEventListener("click", async () => {
   pinError.hidden = true;

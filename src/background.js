@@ -7,11 +7,59 @@ import { ApplePasswords, State } from "./protocol.js";
 const client = new ApplePasswords();
 
 client.onStateChange((s) => {
+  // any state other than unlocked means the session/keys are gone - drop the plaintext cache
+  if (s !== State.Unlocked) pwCacheClear();
   broadcast({ type: "state", state: s });
 });
 
 function broadcast(msg) {
   chrome.runtime.sendMessage(msg).catch(() => {});
+}
+
+// most-recently-used login per host (in-memory), so the dropdown floats your usual account up
+const mruByHost = new Map(); // host -> [username lowercased, most recent first]
+function recordMru(host, username) {
+  if (!host || !username) return;
+  const u = username.toLowerCase();
+  const arr = (mruByHost.get(host) || []).filter((x) => x !== u);
+  arr.unshift(u);
+  mruByHost.set(host, arr.slice(0, 10));
+}
+function orderByMru(host, logins) {
+  const order = mruByHost.get(host);
+  if (!order || !order.length) return logins;
+  const rank = (u) => {
+    const i = order.indexOf((u || "").toLowerCase());
+    return i === -1 ? Infinity : i;
+  };
+  // stable sort keeps the helper's own order for anything not in the MRU list
+  return [...logins].sort((a, b) => rank(a.username) - rank(b.username));
+}
+
+// short-lived cache of decrypted passwords so re-filling the same login skips a second Touch
+// ID (apple prompts on every read). plaintext sits in worker memory up to the TTL, cleared on
+// lock/disconnect. lower PW_CACHE_TTL_MS to trade convenience for less exposure
+const PW_CACHE_TTL_MS = 120_000; // 2 minutes
+const pwCache = new Map(); // `${host}\n${username lowercased}` -> { cred, at }
+function pwCacheKey(host, username) {
+  return `${host}\n${(username || "").toLowerCase()}`;
+}
+function pwCacheGet(host, username) {
+  const k = pwCacheKey(host, username);
+  const hit = pwCache.get(k);
+  if (!hit) return null;
+  if (Date.now() - hit.at > PW_CACHE_TTL_MS) {
+    pwCache.delete(k);
+    return null;
+  }
+  return hit.cred;
+}
+function pwCacheSet(host, cred) {
+  if (!host || !cred?.username) return;
+  pwCache.set(pwCacheKey(host, cred.username), { cred, at: Date.now() });
+}
+function pwCacheClear() {
+  pwCache.clear();
 }
 
 // stuck native call shouldnt leave a UI waiter (inline PIN box) hanging forever
@@ -120,7 +168,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (!client.ready) return sendResponse({ ok: true, locked: true, logins: [] });
           try {
             const logins = await client.getLoginNamesForURL(sender.tab?.id, frameUrl);
-            sendResponse({ ok: true, locked: false, logins });
+            sendResponse({ ok: true, locked: false, logins: orderByMru(registrableHost(frameUrl), logins) });
           } catch {
             sendResponse({ ok: true, locked: false, logins: [] });
           }
@@ -149,7 +197,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // ignore caller-supplied loginName.sites, query by frame's own host
           // (handled in protocol.js); pass only username through
           const safeLogin = { username: msg.loginName?.username };
-          const cred = await client.getPasswordForLoginName(sender.tab.id, frameUrl, safeLogin);
+          // cache hit skips the helper read and its Touch ID; miss reads then caches
+          let cred = pwCacheGet(host, safeLogin.username);
+          if (!cred) {
+            cred = await client.getPasswordForLoginName(sender.tab.id, frameUrl, safeLogin);
+            if (cred) pwCacheSet(host, cred);
+          }
           let filled = false;
           if (cred) {
             const resp = await chrome.tabs.sendMessage(
@@ -163,6 +216,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               { frameId }, // requesting frame only
             );
             filled = !!resp?.filled;
+            if (filled) recordMru(host, cred.username); // remember the account for MRU ordering
           }
           sendResponse({ ok: true, filled });
           break;
@@ -219,7 +273,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const tab = await activeTab();
           if (!tab?.url) return sendResponse({ ok: false, error: "no active tab" });
           const logins = await client.getLoginNamesForURL(tab.id, tab.url);
-          sendResponse({ ok: true, logins });
+          sendResponse({ ok: true, logins: orderByMru(registrableHost(tab.url), logins) });
           break;
         }
 
@@ -238,7 +292,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (!/^https:\/\//i.test(tab.url) && !isLocalDev) {
             return sendResponse({ ok: false, error: "refusing to fill on a non-HTTPS page" });
           }
-          const cred = await client.getPasswordForLoginName(tab.id, tab.url, msg.loginName);
+          let cred = pwCacheGet(host, msg.loginName?.username);
+          if (!cred) {
+            cred = await client.getPasswordForLoginName(tab.id, tab.url, msg.loginName);
+            if (cred) pwCacheSet(host, cred);
+          }
           let filled = false;
           if (cred) {
             // content script re-checks expectedHost before filling
@@ -249,6 +307,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               expectedHost: host,
             });
             filled = !!resp?.filled;
+            if (filled) recordMru(host, cred.username);
           }
           sendResponse({ ok: true, filled });
           break;
