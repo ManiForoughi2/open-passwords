@@ -26,6 +26,18 @@ header {
 }
 header h1 { font-size: 14px; margin: 0; font-weight: 600; flex: 1; }
 
+button.icon {
+  width: auto;
+  padding: 2px 7px;
+  font-size: 16px;
+  line-height: 1;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+button.icon:hover { color: var(--fg); }
+button.icon:active { transform: rotate(90deg); }
+
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .dot.ok { background: #30d158; }
 .dot.warn { background: #ff9f0a; }

@@ -37,8 +37,7 @@ function orderByMru(host, logins) {
 }
 
 // short-lived cache of decrypted passwords so re-filling the same login skips a second Touch
-// ID (apple prompts on every read). plaintext sits in worker memory up to the TTL, cleared on
-// lock/disconnect. lower PW_CACHE_TTL_MS to trade convenience for less exposure
+// ID (apple prompts every read). plaintext in worker memory up to the TTL, cleared on lock
 const PW_CACHE_TTL_MS = 120_000; // 2 minutes
 const pwCache = new Map(); // `${host}\n${username lowercased}` -> { cred, at }
 function pwCacheKey(host, username) {
@@ -211,12 +210,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 type: "fill",
                 username: cred.username,
                 password: cred.password,
+                notes: cred.notes,
                 expectedHost: host,
               },
               { frameId }, // requesting frame only
             );
             filled = !!resp?.filled;
-            if (filled) recordMru(host, cred.username); // remember the account for MRU ordering
+            if (filled) recordMru(host, cred.username);
           }
           sendResponse({ ok: true, filled });
           break;
@@ -304,6 +304,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               type: "fill",
               username: cred.username,
               password: cred.password,
+              notes: cred.notes,
               expectedHost: host,
             });
             filled = !!resp?.filled;
@@ -312,6 +313,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true, filled });
           break;
         }
+
+        case "clearCache":
+          // popup refresh: drop cached passwords so the next fill re-reads a just-changed one
+          pwCacheClear();
+          sendResponse({ ok: true });
+          break;
 
         case "disconnect":
           client.disconnect();

@@ -1,6 +1,6 @@
 // fills credentials into the page on request from popup. never treats OTP inputs
 // as fillable login fields - that misclassification is apple's balloon-on-every-OTP bug
-console.log("[Open Passwords] content script v0.21.0 loaded");
+console.log("[Open Passwords] content script v0.26.0 loaded");
 
 const OTP_AUTOCOMPLETE = /one-time-code/i;
 const OTP_HINT = /\b(otp|one[\s-]?time|verification|2fa|mfa|sms[\s-]?code|auth[\s-]?code|security[\s-]?code|passcode)\b/i;
@@ -188,9 +188,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   const filled = fillCredentials(msg.username, msg.password, fillAnchor);
-  // remember what we filled so a submit right after doesnt offer to "save" this existing login
-  // (matched on host+password later, since the username often wont re-detect)
+  // remember what we filled so a submit right after doesnt re-offer to save this existing login
   if (filled) lastAutofill = { host: location.hostname, password: msg.password, at: Date.now() };
+  if (filled && msg.notes && msg.notes.trim()) showFilledNote(msg.notes.trim(), fillAnchor);
   sendResponse({ ok: true, filled });
   return true;
 });
@@ -210,6 +210,8 @@ let anchorField = null;
 let cachedLogins = null; // null = not fetched yet, [] = fetched none
 let navItems = []; // selectable dropdown rows: [{ el, onActivate }]
 let navIndex = -1;
+let filledNoteEl = null;
+let filledNoteTimer = null;
 
 function isLoginField(el) {
   if (!isVisible(el)) return false;
@@ -248,6 +250,56 @@ function removeSuggestion() {
   anchorField = null;
   navItems = [];
   navIndex = -1;
+}
+
+// show the entry's note by the field after a fill, dismiss on click
+function showFilledNote(notes, field) {
+  removeFilledNote();
+  const anchor = field && field.getBoundingClientRect ? field : anchorField;
+  const r =
+    anchor && anchor.getBoundingClientRect
+      ? anchor.getBoundingClientRect()
+      : { left: 16, bottom: 16, width: 220 };
+  const box = document.createElement("div");
+  box.setAttribute("data-open-passwords", "note");
+  Object.assign(box.style, {
+    position: "absolute",
+    zIndex: "2147483647",
+    left: `${window.scrollX + r.left}px`,
+    top: `${window.scrollY + r.bottom + 2}px`,
+    maxWidth: "320px",
+    background: "Canvas",
+    color: "CanvasText",
+    border: "1px solid rgba(128,128,128,0.4)",
+    borderRadius: "8px",
+    boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+    font: "12px -apple-system, system-ui, sans-serif",
+    padding: "8px 10px",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+  });
+  const head = document.createElement("div");
+  head.textContent = "Note";
+  Object.assign(head.style, { fontSize: "11px", opacity: "0.6", marginBottom: "4px" });
+  const body = document.createElement("div");
+  body.textContent = notes;
+  box.append(head, body);
+  box.addEventListener("mousedown", (e) => {
+    e.stopPropagation();
+    removeFilledNote();
+  });
+  document.body.appendChild(box);
+  filledNoteEl = box;
+  clearTimeout(filledNoteTimer);
+  filledNoteTimer = setTimeout(removeFilledNote, 12000);
+}
+
+function removeFilledNote() {
+  if (filledNoteEl) {
+    filledNoteEl.remove();
+    filledNoteEl = null;
+  }
+  clearTimeout(filledNoteTimer);
 }
 
 // highlight active row, keep it in view
@@ -304,6 +356,11 @@ function onSuggestionKeydown(e) {
 // the field instead of being destroyed
 function positionBox() {
   if (!suggestionEl || !anchorField) return;
+  // field gone or hidden (SPA step change, goes away after submit) - dont leave it dangling
+  if (!anchorField.isConnected || !isVisible(anchorField)) {
+    removeSuggestion();
+    return;
+  }
   const r = anchorField.getBoundingClientRect();
   suggestionEl.style.left = `${window.scrollX + r.left}px`;
   suggestionEl.style.top = `${window.scrollY + r.bottom + 2}px`;
@@ -544,45 +601,46 @@ function appendLoginRows(box, field, logins) {
   }
 }
 
-// lists saved accounts by username directly, like chrome (listing names is free, no Touch
-// ID). locked vault shows an unlock row; a signup/new-password field also gets the generator
+// the two generator options (apple-style), each previewing the value it fills, below the
+// saved accounts
+function appendGeneratorOptions(box, field, separatorAbove) {
+  const options = [
+    { label: "Strong Password", value: generateApplePassword() },
+    { label: "Without Special Characters", value: generateAlphanumericPassword() },
+  ];
+  options.forEach((opt, idx) => {
+    const item = document.createElement("div");
+    item.setAttribute("data-op-generate", "1");
+    Object.assign(item.style, {
+      padding: "8px 10px",
+      cursor: "pointer",
+      borderTop: idx === 0 && separatorAbove ? "1px solid rgba(128,128,128,0.25)" : "none",
+    });
+    const label = document.createElement("div");
+    label.textContent = opt.label;
+    Object.assign(label.style, { fontWeight: "600", fontSize: "13px" });
+    const preview = document.createElement("div");
+    preview.textContent = opt.value;
+    Object.assign(preview.style, {
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      fontSize: "12px",
+      opacity: "0.65",
+      marginTop: "2px",
+    });
+    item.append(label, preview);
+    registerRow(item, () => {
+      fillGeneratedPassword(field, opt.value);
+      removeSuggestion();
+    });
+    box.appendChild(item);
+  });
+}
+
+// saved accounts first (listing names is free, no Touch ID), then generator options on a
+// new-password field. locked vault shows an unlock row
 async function buildOfferSuggestion(field) {
   const box = buildSuggestionBox(field);
   const hasGenerator = isNewPasswordField(field);
-
-  if (hasGenerator) {
-    // two options like apple's menu, each previewing the value it fills
-    const options = [
-      { label: "Strong Password", value: generateApplePassword() },
-      { label: "Without Special Characters", value: generateAlphanumericPassword() },
-    ];
-    for (const opt of options) {
-      const item = document.createElement("div");
-      item.setAttribute("data-op-generate", "1");
-      Object.assign(item.style, {
-        padding: "8px 10px",
-        cursor: "pointer",
-        borderBottom: "1px solid rgba(128,128,128,0.2)",
-      });
-      const label = document.createElement("div");
-      label.textContent = opt.label;
-      Object.assign(label.style, { fontWeight: "600", fontSize: "13px" });
-      const preview = document.createElement("div");
-      preview.textContent = opt.value;
-      Object.assign(preview.style, {
-        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-        fontSize: "12px",
-        opacity: "0.65",
-        marginTop: "2px",
-      });
-      item.append(label, preview);
-      registerRow(item, () => {
-        fillGeneratedPassword(field, opt.value);
-        removeSuggestion();
-      });
-      box.appendChild(item);
-    }
-  }
 
   let res;
   try {
@@ -594,18 +652,20 @@ async function buildOfferSuggestion(field) {
   if (suggestionEl !== box) return;
 
   if (res?.ok && res.locked) {
+    // cant list saved accounts while locked - offer to unlock, then the generator below
     const row = document.createElement("div");
     row.textContent = "Unlock to autofill…";
     Object.assign(row.style, { padding: "8px 10px", cursor: "pointer" });
     registerRow(row, () => buildLockedSuggestion(field));
     box.appendChild(row);
+    if (hasGenerator) appendGeneratorOptions(box, field, true);
     return;
   }
 
   const logins = res?.ok ? res.logins || [] : [];
   if (logins.length) appendLoginRows(box, field, logins);
-  // nothing saved here and not a signup field: dont leave an empty box on screen
-  else if (!hasGenerator) removeSuggestion();
+  if (hasGenerator) appendGeneratorOptions(box, field, logins.length > 0);
+  if (!logins.length && !hasGenerator) removeSuggestion();
 }
 
 // post-unlock chooser reuses the same row list
@@ -687,6 +747,17 @@ document.addEventListener("keydown", onSuggestionKeydown, true);
 // fired this and killed the offer - the "click away then back and its gone" bug
 document.addEventListener("scroll", positionBox, true);
 window.addEventListener("resize", positionBox, true);
+// dismiss when the field blurs to anything outside the dropdown. focus moving INTO the box
+// (the inline PIN field) is kept
+document.addEventListener(
+  "focusout",
+  (e) => {
+    if (!suggestionEl || e.target !== anchorField) return;
+    if (e.relatedTarget && suggestionEl.contains(e.relatedTarget)) return;
+    removeSuggestion();
+  },
+  true,
+);
 document.addEventListener(
   "mousedown",
   (e) => {
@@ -743,105 +814,188 @@ function collectSubmittedCredentials(scope) {
   const strictBefore = strict.filter(before);
   let userEl = strictBefore.length ? strictBefore[strictBefore.length - 1] : strict[0] || null;
 
-  // fallback: nothing passed the strict test (bare box, no autocomplete). a password was
-  // submitted, so the nearest filled text/email/tel field before it is the username
+  // fallback: no strict match (bare box, no autocomplete). nearest filled text/email/tel field
+  // before the password is the username, but reject junk so a reset doesnt save "9" as the name
   if (!userEl) {
+    const looksLikeUsername = (v) => {
+      v = (v || "").trim();
+      if (v.length < 3) return false;
+      if (/^\d+$/.test(v) && v.length < 6) return false; // a short number is a code, not a name
+      return true;
+    };
     const guess = inputs.filter((i) => {
       if (!i.value || isPasswordField(i)) return false;
       if (isOtpField(i) || isSearchOrComboField(i)) return false;
       const t = (i.type || "text").toLowerCase();
       if (!["text", "email", "tel", ""].includes(t)) return false;
       if (NONLOGIN_HINT.test(attrBlob(i))) return false;
+      if (!looksLikeUsername(i.value)) return false;
       return before(i);
     });
     userEl = guess.length ? guess[guess.length - 1] : null;
   }
 
-  return { username: (userEl?.value || "").trim(), password };
+  // allPasswords: a change form's last field is often the current/old password, so the caller
+  // can spot a generated value that isnt last
+  return { username: (userEl?.value || "").trim(), password, allPasswords: pws.map((p) => p.value) };
 }
 
-// a password the user generated is always offered to save: bypasses the existing-login and
-// no-username skips, unlocks if needed, and MAYBE_ADD adds-or-updates. otherwise apple's sheet
-// fires only for a genuinely new login on an unlocked vault
+function anchorPwField(root) {
+  const scope = root && root.querySelectorAll ? root : document;
+  const pws = Array.from(scope.querySelectorAll('input[type="password"]'));
+  return pws.find(isVisible) || pws[0] || null;
+}
+
+// send the save to the helper. if the vault turns out locked, surface the PIN then retry
+function sendSave(username, password, field) {
+  console.debug("[Open Passwords] sending save", { user: username || "(none)" });
+  chrome.runtime
+    .sendMessage({ type: "maybeSave", username, password })
+    .then((res) => {
+      if (res?.ok && res.locked && field) {
+        buildLockedSuggestion(field, () =>
+          chrome.runtime.sendMessage({ type: "maybeSave", username, password }).catch(() => {}),
+        );
+      }
+    })
+    .catch(() => {});
+}
+
+// reset/change with no matching username: show the site's saved accounts so the new password
+// updates the right one. single account skips the chooser (handled by the caller)
+function showSaveAccountChooser(existing, detected, password, field) {
+  const anchor = field || anchorPwField(document);
+  if (!anchor) return sendSave(existing[0], password, null);
+  const box = buildSuggestionBox(anchor);
+  const title = document.createElement("div");
+  title.textContent = "Save password for";
+  Object.assign(title.style, { padding: "8px 10px 4px", fontSize: "12px", opacity: "0.8" });
+  box.appendChild(title);
+  for (const u of existing) {
+    const row = document.createElement("div");
+    row.textContent = u;
+    Object.assign(row.style, {
+      padding: "8px 10px",
+      cursor: "pointer",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    });
+    registerRow(row, () => {
+      removeSuggestion();
+      sendSave(u, password, anchor);
+    });
+    box.appendChild(row);
+  }
+  const nw = document.createElement("div");
+  nw.textContent = detected ? `New account: ${detected}` : "Save as new account";
+  Object.assign(nw.style, {
+    padding: "8px 10px",
+    cursor: "pointer",
+    borderTop: "1px solid rgba(128,128,128,0.2)",
+    opacity: "0.85",
+  });
+  registerRow(nw, () => {
+    removeSuggestion();
+    sendSave(detected, password, anchor);
+  });
+  box.appendChild(nw);
+}
+
+// decide who to save the submitted password for. key case: a reset/change with no usable
+// username where the vault already has account(s) - attach it to an existing one, not a dupe
 async function maybeOfferSave(scope) {
   if (!frameIsSafe()) return;
   const cred = collectSubmittedCredentials(scope);
   if (!cred || !cred.password) return;
 
-  const generated =
-    lastGenerated &&
-    lastGenerated.host === location.hostname &&
-    lastGenerated.password === cred.password &&
-    Date.now() - lastGenerated.at < 300000;
+  // generated if the value we generated is present in ANY submitted password field (a change
+  // form's last field is often the current/old password). unique + recent, so no host match
+  const genPw =
+    lastGenerated && Date.now() - lastGenerated.at < 600000 ? lastGenerated.password : null;
+  const generated = !!genPw && (cred.allPasswords || []).includes(genPw);
+  const savePassword = generated ? genPw : cred.password;
 
-  if (!generated) {
-    // skip a login we just autofilled (existing). match on host+password since the username
-    // often wont re-detect on a two-step / password-only page
-    if (
-      lastAutofill &&
-      lastAutofill.host === location.hostname &&
-      lastAutofill.password === cred.password &&
-      Date.now() - lastAutofill.at < 300000
-    ) {
-      return;
-    }
-    // no username on an incidental submit -> apple just nags "enter the user name". skip
-    // (generated passwords are exempt, handled above)
-    if (!cred.username) return;
+  // a login we just autofilled unchanged is not a save (unless we generated a new password)
+  if (
+    !generated &&
+    lastAutofill &&
+    lastAutofill.host === location.hostname &&
+    lastAutofill.password === cred.password &&
+    Date.now() - lastAutofill.at < 300000
+  ) {
+    console.debug("[Open Passwords] save skipped: recently autofilled");
+    return;
   }
 
-  // submit fires as click + submit + Enter, so dedupe. claim the slot synchronously before any
-  // await, else a second event in the same tick opens a second sheet ("shows up twice")
-  const key = `${location.hostname} ${cred.username || cred.password}`;
+  // dedupe, claimed synchronously before any await ("shows up twice" fix)
+  const key = `${location.hostname} ${cred.username || savePassword}`;
   const now = Date.now();
   if (key === lastSaveKey && now - lastSaveAt < 60000) return;
   lastSaveKey = key;
   lastSaveAt = now;
 
-  if (!generated) {
-    // names-only gate (listing is free, reading needs Touch ID). locked -> silent. known
-    // username -> returning login, silent. generated passwords skip this (may be a change)
-    let existing;
-    try {
-      existing = await chrome.runtime.sendMessage({ type: "inlineLogins" });
-    } catch {
-      return;
+  const root = scope && scope.querySelectorAll ? scope : document;
+  const pwInputs = Array.from(root.querySelectorAll('input[type="password"]'));
+  const field = pwInputs.find(isVisible) || pwInputs[0] || null;
+  // create/change context vs a plain login (two+ password fields, new-password, or generated)
+  const newPwCtx =
+    generated ||
+    (cred.allPasswords || []).length >= 2 ||
+    pwInputs.some((p) => (p.getAttribute("autocomplete") || "").toLowerCase().includes("new-password"));
+
+  // accounts already saved for this site (names only, free, no Touch ID)
+  let existing = [];
+  let locked = false;
+  try {
+    const r = await chrome.runtime.sendMessage({ type: "inlineLogins" });
+    if (r?.ok) {
+      locked = !!r.locked;
+      existing = (r.logins || []).map((l) => l.username).filter(Boolean);
     }
-    if (!existing?.ok || existing.locked) return;
-    const known =
-      cred.username &&
-      (existing.logins || []).some((l) => (l.username || "").toLowerCase() === cred.username.toLowerCase());
-    if (known) return;
+  } catch {}
+
+  const detected = cred.username;
+  const matched = detected && existing.find((u) => u.toLowerCase() === detected.toLowerCase());
+
+  console.debug("[Open Passwords] save-check", {
+    host: location.hostname,
+    user: detected || "(none)",
+    pwFields: (cred.allPasswords || []).length,
+    generated,
+    newPwCtx,
+    existingCount: existing.length,
+    matched: !!matched,
+    locked,
+  });
+
+  // 1) page username matches a saved account
+  if (matched) {
+    if (generated) return sendSave(matched, savePassword, field); // password change -> update it
+    console.debug("[Open Passwords] save skipped: existing account, no new password");
+    return; // plain re-login, dont nag
   }
 
-  // hand to the helper -> apple's native save/update sheet
-  const res = await chrome.runtime
-    .sendMessage({ type: "maybeSave", username: cred.username, password: cred.password })
-    .catch(() => null);
+  // 2) page gave a real, unmatched username -> a new account (signup / new login). offer it
+  if (detected) return sendSave(detected, savePassword, field);
 
-  // generated + locked: the save couldnt happen, so surface the PIN then save on unlock. only
-  // on the generated path, so ordinary logins never get an unbidden PIN box
-  if (generated && res?.ok && res.locked) {
-    const field =
-      (document.activeElement instanceof HTMLInputElement &&
-        isPasswordField(document.activeElement) &&
-        document.activeElement) ||
-      Array.from(document.querySelectorAll('input[type="password"]')).find(isVisible) ||
-      document.querySelector('input[type="password"]');
-    if (field) {
-      buildLockedSuggestion(field, () =>
-        chrome.runtime
-          .sendMessage({ type: "maybeSave", username: cred.username, password: cred.password })
-          .catch(() => {}),
-      );
-    }
+  // 3) no username, reset/change on a site with saved account(s): surface them to update one
+  if (newPwCtx && !locked && existing.length) {
+    if (existing.length === 1) return sendSave(existing[0], savePassword, field);
+    return showSaveAccountChooser(existing, detected, savePassword, field);
   }
+
+  // 4) otherwise only a generated password proceeds (native sheet asks for the username)
+  if (generated) return sendSave(detected, savePassword, field);
+  console.debug("[Open Passwords] save skipped: no username");
 }
 
 document.addEventListener(
   "submit",
   (e) => {
-    if (e.isTrusted) maybeOfferSave(e.target);
+    if (!e.isTrusted) return;
+    removeSuggestion(); // the autofill dropdown must not outlive the submit
+    maybeOfferSave(e.target);
   },
   true,
 );
@@ -861,6 +1015,7 @@ document.addEventListener(
     if (!e.isTrusted || e.key !== "Enter") return;
     const t = e.target;
     if (t instanceof HTMLInputElement && (isPasswordField(t) || isUsernameField(t))) {
+      removeSuggestion(); // formless (SPA) submit: Enter doesnt fire a submit event
       maybeOfferSave(t.form || document);
     }
   },

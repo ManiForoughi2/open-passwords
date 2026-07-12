@@ -7,6 +7,7 @@ const views = {
 const dot = document.getElementById("dot");
 const pinInput = document.getElementById("pin");
 const pinError = document.getElementById("pin-error");
+const refreshBtn = document.getElementById("refresh");
 
 function show(name) {
   for (const [k, el] of Object.entries(views)) el.hidden = k !== name;
@@ -39,6 +40,7 @@ async function activeTab() {
 
 async function render(state) {
   setDot(state);
+  refreshBtn.hidden = state !== "unlocked";
   if (state === "no_helper") return show("nohelper");
   if (state === "disconnected") return show("connecting");
   if (state === "needs_pin") {
@@ -108,6 +110,14 @@ pinInput.addEventListener("keydown", (e) => {
 // auto-submit once all 6 digits are in, like apple - no Enter needed
 pinInput.addEventListener("input", () => {
   if (pinInput.value.trim().length === 6) document.getElementById("verify").click();
+});
+
+refreshBtn.addEventListener("click", async () => {
+  // drop cached passwords then re-list, so a just-changed password shows up
+  refreshBtn.disabled = true;
+  await send({ type: "clearCache" });
+  await renderLogins();
+  refreshBtn.disabled = false;
 });
 
 document.getElementById("newcode").addEventListener("click", async () => {

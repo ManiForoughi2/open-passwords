@@ -298,7 +298,13 @@ export class ApplePasswords {
       );
       if (res.STATUS === QueryStatus.Success) {
         const e = (res.Entries ?? [])[0];
-        return e ? { username: e.USR, password: e.PWD, sites: e.sites } : undefined;
+        if (!e) return undefined;
+        // log field names (never values) to check whether the helper also sends notes
+        try {
+          console.debug("[Open Passwords] entry fields:", Object.keys(e));
+        } catch {}
+        const notes = e.NOTES ?? e.Notes ?? e.notes ?? e.NOTE ?? e.note ?? "";
+        return { username: e.USR, password: e.PWD, sites: e.sites, notes };
       }
       if (res.STATUS === QueryStatus.NoResults) return undefined;
       throw queryStatusError(res.STATUS);
