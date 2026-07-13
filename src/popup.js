@@ -57,9 +57,7 @@ pmToggle.addEventListener("change", () => {
 
 renderPmToggle();
 
-// hides the browser's password manager via a real macOS policy. a user-level `defaults write`
-// isnt a forced policy (the browser ignores it), so the helper builds a config profile and
-// opens it - the user approves it once in System Settings and then it sticks
+// hide the browser password manager via a real macOS config profile (a user defaults write isnt forced), approved once in System Settings
 const policyToggle = document.getElementById("policy-toggle");
 const policyNote = document.getElementById("policy-note");
 
@@ -145,6 +143,15 @@ afToggle.addEventListener("change", () => {
 });
 
 renderAfToggle();
+
+// swallow the browser's conditional passkey autofill dropdown; plain stored flag the MAIN-world guard reads, explicit sign-in unaffected
+const pkToggle = document.getElementById("pk-toggle");
+chrome.storage?.local?.get({ hidePasskeys: false }, (d) => {
+  pkToggle.checked = !!d.hidePasskeys;
+});
+pkToggle.addEventListener("change", () => {
+  chrome.storage?.local?.set({ hidePasskeys: pkToggle.checked });
+});
 
 function setDot(state) {
   dot.className = "dot";

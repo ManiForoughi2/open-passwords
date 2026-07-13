@@ -55,9 +55,7 @@ function isSearchOrComboField(el) {
   return false;
 }
 
-// formless/SPA fallback: recognise logins not wrapped in a form without firing on
-// search/tag/newsletter boxes that have no password in sight. also scans the field's own
-// shadow root, where document.querySelectorAll cant see
+// formless/SPA fallback: offer only when a visible password is in sight (also scans the field's shadow root)
 function pageHasVisiblePassword(field) {
   if (Array.from(document.querySelectorAll('input[type="password"]')).some(isVisible)) return true;
   const root = field?.getRootNode?.();
@@ -71,8 +69,7 @@ function pageHasVisiblePassword(field) {
 function hasStrongIdentitySignal(el) {
   const t = (el.type || "text").toLowerCase();
   const ac = (el.getAttribute("autocomplete") || "").toLowerCase();
-  // webauthn = a passkey field, which is also the account-identifier field (wells fargo,
-  // nintendo mark their username box "webauthn"). treat it as a login field so we offer there
+  // webauthn = a passkey/identity field (wells fargo, nintendo mark their username box "webauthn"), treat as login
   if (ac.includes("username") || ac.includes("email") || ac.includes("webauthn")) return true;
   if (t === "email") return true;
   return /\b(e[\s-]?mail|sign[\s-]?in[\s-]?id|log[\s-]?in[\s-]?id|user[\s-]?id|username|passkey)\b/i.test(attrBlob(el));
@@ -109,9 +106,7 @@ function isUsernameField(el) {
   return /\b(user|login|signin|sign[\s-]?in|loginid)\b/i.test(blob);
 }
 
-// use the native prototype value setter: react/vue/angular patch the element's own
-// `value`, so bypass that and fire input/change to re-sync framework controlled state.
-// fixes the "login fails until you edit a char" bug without faking keystrokes
+// native value setter + input/change so react/vue/angular re-sync (fixes "login fails until you edit a char")
 function setValue(el, value) {
   const proto = el instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
@@ -132,10 +127,7 @@ function isVisible(el) {
   return true;
 }
 
-// safe to write a credential into. more permissive than isVisible, matching apple/chrome:
-// legit hidden fields (display:none/visibility:hidden the site reveals later, or a hidden
-// username the manager reads) are fillable. blocks the clickjacking pattern - a field kept
-// IN LAYOUT but rendered invisible to steal a fill: offscreen, ~1px, or transparent
+// safe to fill: allow truly-hidden/manager-only fields, block the clickjacking cases (1px, opacity:0, offscreen)
 function isFillable(el) {
   if (!el.isConnected) return false;
   const s = getComputedStyle(el);
@@ -160,9 +152,7 @@ function isFillable(el) {
   return true;
 }
 
-// fill near the anchor the user acted on so a multi-form page fills the RIGHT one.
-// scope to the anchor's form when it has one, else nearest password to the anchor.
-// includes the anchor's shadow root, which document.querySelectorAll cant reach
+// fill near the anchor the user acted on so a multi-form page fills the right one (scopes to its form/shadow root)
 function fillCredentials(username, password, anchor) {
   const pool = new Set(document.querySelectorAll("input"));
   const root = anchor?.getRootNode?.();
@@ -248,9 +238,7 @@ let lastAutofill = null;
 // last password we generated, so its submit always offers to save (reset page / password change)
 let lastGenerated = null;
 
-// inline autofill suggestion: dropdown of saved logins on focus of a real login field.
-// shown ONLY on genuine username/password fields (never OTP/search) so it cant recreate
-// the balloon-on-every-box behavior
+// inline autofill dropdown on focus, shown only on genuine username/password fields (never OTP/search)
 let suggestionEl = null;
 let anchorField = null;
 let cachedLogins = null; // null = not fetched yet, [] = fetched none
@@ -281,9 +269,7 @@ function isLoginField(el) {
   const formOptedOut = form && (form.getAttribute("autocomplete") || "").toLowerCase() === "off";
   if (formOptedOut) return false;
 
-  // formless or password-not-in-this-form (SPA two-step, late password): only offer if a
-  // visible password exists somewhere - evidence this is a login screen. without this the
-  // old unconditional formless return fired on instagram tag boxes, search, newsletter
+  // formless/SPA: only offer if a visible password exists somewhere, else it fires on tag/search/newsletter boxes
   if (pageHasVisiblePassword(el)) return true;
 
   // two-step first page (email now, password next screen): no password anywhere yet, so gate
@@ -623,9 +609,7 @@ function pickFrom(set) {
   return set[randBelow(set.length)];
 }
 
-// apple's "Strong Password" format (per rmondello, who built Apple Passwords): 20 chars =
-// three CVCCVC syllable groups hyphenated = 16 lowercase + 1 uppercase + 1 digit + 2 hyphens.
-// 19 consonants, 6 vowels; the digit goes in one of 5 slots (either side of a hyphen, or end)
+// apple's "Strong Password" (per rmondello): 20 chars, three CVCCVC syllables hyphenated, 16 lower + 1 upper + 1 digit
 function generateApplePassword() {
   const C = "bcdfghjkmnpqrstvwxz"; // 19 consonants (no ambiguous 'l')
   const V = "aeiouy"; // 6 vowels
@@ -798,12 +782,7 @@ function buildChooser(field, logins) {
   appendLoginRows(box, field, logins);
 }
 
-// IdP/CIAM/SSO/payment/bank-aggregation domains that legitimately host login UIs in
-// cross-origin iframes, matched by registrable domain. EXCLUDES generic app/static hosting
-// where anyone can deploy under a subdomain (firebaseapp.com, web.app, supabase.co,
-// github.io, myshopify.com, *.vercel/netlify/pages.dev) and bare token hosts like
-// windows.net. each allowed frame is keyed to its OWN origin in the background - it only
-// ever sees creds for that exact provider origin, never the top page's
+// IdP/SSO/payment domains that host login UIs in cross-origin iframes; excludes generic app-hosting (firebaseapp/vercel/etc) where anyone can deploy
 const IFRAME_LOGIN_ALLOWLIST = [
   "accounts.google.com", "adyen.com", "affirm.com", "afterpay.com", "amazon.com", "amazoncognito.com",
   "appleid.apple.com", "atlassian.com", "auth0.com", "authkit.app", "awsapps.com", "b2clogin.com",
@@ -830,9 +809,7 @@ function isAllowlistedLoginHost(host) {
   return IFRAME_LOGIN_ALLOWLIST.some((d) => host === d || host.endsWith("." + d));
 }
 
-// we run in iframes too (all_frames). offer in a frame only when (a) same-origin with the
-// top page or (b) a known IdP/SSO/payment login host. unknown cross-origin frames
-// (ads/trackers) refused, matching chrome's "fill embedded logins not arbitrary frames"
+// in iframes (all_frames), offer only when same-origin with the top page or a known IdP/SSO/payment host
 function frameIsSafe() {
   if (window === window.top) return true; // top frame always fine
   if (isAllowlistedLoginHost(location.hostname)) return true;
@@ -896,11 +873,7 @@ document.addEventListener(
   true,
 );
 
-// --- save / update -------------------------------------------------------------
-// offer to store credentials the user submits, like chrome/safari "save password?".
-// we forward the submitted username+password to the helper, which decides add-vs-update
-// and shows the native macOS prompt - nothing is written without the user confirming
-// there. fires only on genuine (isTrusted) user submits
+// offer to save submitted creds (chrome/safari style); helper shows the native prompt, only on isTrusted submits
 let lastSaveKey = "";
 let lastSaveAt = 0;
 
@@ -933,9 +906,7 @@ function isSubmitControl(el) {
   return false;
 }
 
-// pick the credential the user submitted within a scope. the "new" password on a
-// change/confirm form is the last password field with a value; the username is the
-// login field just before the first password
+// pick the submitted credential: new password = last non-empty password field, username = login field before it
 function collectSubmittedCredentials(scope) {
   const root = scope && scope.querySelectorAll ? scope : document;
   const inputs = Array.from(root.querySelectorAll("input"));
@@ -997,15 +968,13 @@ function anchorPwField(root) {
   return pws.find(isVisible) || pws[0] || null;
 }
 
-// collect the submitted credential and hand it to the background to resolve + save. awaiting
-// the account lookup here used to lose the save when a reset form redirected on submit
+// hand the submitted credential to the background to save; awaiting the lookup here lost the save on a redirect
 async function maybeOfferSave(scope) {
   if (!frameIsSafe()) return;
   const cred = collectSubmittedCredentials(scope);
   if (!cred || !cred.password) return;
 
-  // generated if the value we generated is present in ANY submitted password field (a change
-  // form's last field is often the current/old password). unique + recent, so no host match
+  // generated = our generated value is in any submitted field (change form's last field is often the old password)
   const genPw =
     lastGenerated && Date.now() - lastGenerated.at < 600000 ? lastGenerated.password : null;
   const generated = !!genPw && (cred.allPasswords || []).includes(genPw);
@@ -1023,8 +992,7 @@ async function maybeOfferSave(scope) {
     return;
   }
 
-  // dedupe, claimed synchronously ("shows up twice" fix). 15s covers the click+submit+Enter
-  // burst without eating a genuine resubmit a minute later
+  // dedupe claimed synchronously ("shows up twice" fix); 15s covers the click+submit+Enter burst
   const key = `${location.hostname} ${cred.username || savePassword}`;
   const now = Date.now();
   if (key === lastSaveKey && now - lastSaveAt < 15000) return;
@@ -1039,8 +1007,7 @@ async function maybeOfferSave(scope) {
     (cred.allPasswords || []).length >= 2 ||
     pwInputs.some((p) => (p.getAttribute("autocomplete") || "").toLowerCase().includes("new-password"));
 
-  // fire and forget - awaiting a reply would let a navigating submit kill us before the save
-  // lands. if the vault is locked the background stashes it and saves on the next unlock
+  // fire and forget - awaiting would let a navigating submit kill us; locked saves get stashed and flushed on unlock
   console.debug("[Open Passwords] handing save to background", {
     host: location.hostname,
     user: cred.username || "(none)",

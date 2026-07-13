@@ -1,6 +1,4 @@
-// owns the native connection + SRP session, brokers popup/content-script requests.
-// alarm keep-alive holds the MV3 worker (and in-memory session key) alive so the
-// user isnt re-prompted for the PIN on every idle-out
+// owns the native connection + SRP session; alarm keep-alive holds the MV3 worker so the PIN isnt re-prompted every idle-out
 
 import { ApplePasswords, State } from "./protocol.js";
 
@@ -36,16 +34,13 @@ function orderByMru(host, logins) {
   return [...logins].sort((a, b) => rank(a.username) - rank(b.username));
 }
 
-// which account a submitted password attaches to. returns a username ("" lets the native sheet
-// ask), or null to save nothing. runs in the background, not the page, so a reset form that
-// redirects on submit cant tear it down mid-lookup and lose the save
+// which account a submitted password attaches to ("" lets the native sheet ask, null saves nothing); in the background so a redirect cant lose it
 function pickSaveTarget({ host, existing, detected, generated, newPwCtx }) {
   const matched = detected && existing.find((u) => u.toLowerCase() === detected.toLowerCase());
   // update only on a new password, stay quiet on a plain re-login
   if (matched) return generated || newPwCtx ? matched : null;
   if (detected) return detected;
-  // no username on a reset with saved account(s): attach to the MRU one. apple's sheet shows it
-  // and lets the user pick another before confirming
+  // no username on a reset with saved account(s): attach to the MRU one, apple's sheet lets the user re-pick
   if (newPwCtx && existing.length) {
     return orderByMru(host, existing.map((u) => ({ username: u })))[0].username;
   }
@@ -53,8 +48,7 @@ function pickSaveTarget({ host, existing, detected, generated, newPwCtx }) {
   return null;
 }
 
-// new-password saves that arrived while the vault was locked. a reset can navigate away before
-// the user unlocks, so we stash the save and complete it the moment they do
+// new-password saves that arrived while locked; a reset can navigate away, so stash and flush on unlock
 const pendingSaves = [];
 function queuePendingSave(save) {
   const k = `${save.host} ${(save.detected || "").toLowerCase()}`;
@@ -162,9 +156,7 @@ chrome.runtime.onStartup.addListener(ensureConnected);
 chrome.runtime.onInstalled.addListener(ensureConnected);
 ensureConnected();
 
-// suppress only Chrome password autofill so it doesnt pop a competing dropdown.
-// leave address and credit-card / Google Pay autofill alone (Apple's extension
-// kills those too, a top complaint)
+// suppress only chrome password autofill, leave address + credit-card/google pay alone
 function suppressChromeAutofill() {
   const svc = chrome.privacy?.services;
   if (!svc?.passwordSavingEnabled) return;
@@ -186,9 +178,7 @@ chrome.runtime.onInstalled.addListener(suppressChromeAutofill);
 chrome.runtime.onStartup.addListener(suppressChromeAutofill);
 suppressChromeAutofill();
 
-// only the extension's own popup/options pages may drive privileged actions.
-// content-script messages carry sender.tab, the popup never does. gate that
-// stops any web page from requesting or filling passwords
+// only the extension's own popup may drive privileged actions (content messages carry sender.tab, the popup never does)
 function isFromOwnUi(sender) {
   return sender.id === chrome.runtime.id && sender.tab === undefined;
 }
@@ -219,10 +209,7 @@ function isLocalDevHost(host) {
   );
 }
 
-// messages a content script may send. operate only on the sender's own tab/origin
-// and never return a password to the page (inlineFill pushes straight to the fill
-// handler, page script never sees it). verifyPin takes a PIN guess and returns lock
-// state only, never vault data
+// messages a content script may send - only the sender's own tab/origin, never return a password to the page
 const CONTENT_ALLOWED = new Set(["inlineLogins", "inlineFill", "requestChallenge", "verifyPin", "resolveSave"]);
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -238,9 +225,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
       switch (msg?.type) {
         case "inlineLogins": {
-          // login names only (no passwords) for the exact frame that asked. origin
-          // is sender.url, never the top tab's, so a sub-frame cant enumerate the
-          // top page's usernames
+          // login names only (no passwords) for the exact frame that asked, keyed to sender.url not the top tab
           const frameUrl = sender.url;
           if (!frameUrl) return sendResponse({ ok: false, error: "no frame" });
           await ensureConnected();
@@ -259,9 +244,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
 
         case "inlineFill": {
-          // fetch password for the requesting frame's own origin, deliver fill to
-          // that one frame only (frameId), never broadcast. confused-deputy fix: a
-          // sub-frame cant pull the top page's password nor grab another frame's fill
+          // fetch + fill for the requesting frame's own origin only (frameId), never broadcast - confused-deputy fix
           const frameUrl = sender.url;
           const frameId = sender.frameId;
           if (!frameUrl || sender.tab?.id == null || frameId == null) {
@@ -310,9 +293,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
 
         case "resolveSave": {
-          // resolve the account + drive the native save here, in the background, so a page that
-          // navigates on submit cant kill it mid-flight. the macOS sheet is still the write gate.
-          // origin is the sender frame's own url, never the top tab's
+          // resolve + save here in the background so a submit that navigates cant kill it; native sheet is still the write gate
           const frameUrl = sender.url;
           if (!frameUrl || sender.tab?.id == null) {
             return sendResponse({ ok: false, error: "no frame" });
@@ -327,8 +308,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const newPwCtx = !!msg.newPwCtx;
           await ensureConnected();
 
-          // locked: cant list accounts or write. a new-password save is one the user clearly
-          // wants, so stash it and complete it on unlock; a plain re-login isnt worth deferring
+          // locked: cant list or write - stash a new-password save for unlock, a plain re-login isnt worth deferring
           if (!client.ready) {
             if (generated || newPwCtx) {
               queuePendingSave({
