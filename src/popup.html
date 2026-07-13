@@ -44,20 +44,25 @@
         <p id="site" class="site"></p>
         <ul id="logins" class="logins"></ul>
         <p id="nologins" class="msg" hidden>No saved passwords for this site.</p>
+        <p id="refresh-note" class="note" hidden></p>
       </section>
     </main>
 
     <!-- Footer: help turn off Chrome's competing password dropdown -->
     <footer>
+      <label id="pm-row" class="switch-row" hidden>
+        <span>Hide browser save-password bubble<span id="pm-note" class="subnote"></span></span>
+        <input type="checkbox" id="pm-toggle" class="switch" />
+      </label>
       <button id="chrome-guide" class="link">Turn off Chrome passwords</button>
       <div id="chrome-steps" class="steps" hidden>
-        <p>Chrome's own password popup can't be turned off by an extension — only in Chrome's settings. To stop seeing two dropdowns:</p>
+        <p>The save/update bubble is suppressed automatically where possible (status above). The autofill dropdown for passwords already stored in the browser can't be blocked by an extension — remove them:</p>
         <ol>
-          <li>Click <b>Open Chrome settings</b> below.</li>
-          <li>Open <b>Google Password Manager → Settings</b>.</li>
-          <li>Turn <b>off</b> “Offer to save passwords” and “Auto Sign-in”.</li>
+          <li>Click <b>Open password settings</b> below.</li>
+          <li>Turn <b>off</b> “Offer to save passwords” and “Sign in automatically”.</li>
+          <li>Delete the saved passwords there (export a CSV first if you want a backup) — with none stored, its dropdown never appears.</li>
         </ol>
-        <button id="open-chrome-settings" class="primary">Open Chrome settings</button>
+        <button id="open-chrome-settings" class="primary">Open password settings</button>
       </div>
     </footer>
 

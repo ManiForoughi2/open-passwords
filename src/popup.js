@@ -18,9 +18,45 @@ document.getElementById("chrome-guide").addEventListener("click", () => {
   steps.hidden = !steps.hidden;
 });
 document.getElementById("open-chrome-settings").addEventListener("click", () => {
-  // chrome:// pages cant be opened via a link, need tabs.create
-  chrome.tabs.create({ url: "chrome://settings/autofill/passwords" });
+  // chrome:// pages cant be opened via a link, need tabs.create. maps to brave:// in brave
+  chrome.tabs.create({ url: "chrome://password-manager/settings" });
 });
+
+// togglable suppression of the browser's save/update bubble. ON sets the pref off, OFF hands
+// control back to the browser. the choice persists and the background respects it on startup
+const pmToggle = document.getElementById("pm-toggle");
+const pmNote = document.getElementById("pm-note");
+
+function renderPmToggle() {
+  const pref = chrome.privacy?.services?.passwordSavingEnabled;
+  const row = document.getElementById("pm-row");
+  if (!pref?.get) return;
+  pref.get({}, (d) => {
+    if (chrome.runtime.lastError || !d) return;
+    row.hidden = false;
+    pmToggle.checked = d.value === false;
+    const controllable =
+      d.levelOfControl === "controllable_by_this_extension" ||
+      d.levelOfControl === "controlled_by_this_extension";
+    pmToggle.disabled = !controllable;
+    pmNote.textContent = controllable
+      ? ""
+      : d.levelOfControl === "controlled_by_other_extensions"
+        ? "controlled by another extension"
+        : "controlled by browser policy";
+  });
+}
+
+pmToggle.addEventListener("change", () => {
+  const pref = chrome.privacy?.services?.passwordSavingEnabled;
+  if (!pref) return;
+  const on = pmToggle.checked;
+  chrome.storage?.local?.set({ suppressSaveBubble: on });
+  if (on) pref.set({ value: false }, () => renderPmToggle());
+  else pref.clear({}, () => renderPmToggle());
+});
+
+renderPmToggle();
 
 function setDot(state) {
   dot.className = "dot";
@@ -38,9 +74,12 @@ async function activeTab() {
   return tab;
 }
 
+let lastState = "disconnected";
+
 async function render(state) {
+  lastState = state;
   setDot(state);
-  refreshBtn.hidden = state !== "unlocked";
+  refreshBtn.hidden = state !== "unlocked" && state !== "needs_pin";
   if (state === "no_helper") return show("nohelper");
   if (state === "disconnected") return show("connecting");
   if (state === "needs_pin") {
@@ -52,6 +91,8 @@ async function render(state) {
     await renderLogins();
     return show("unlocked");
   }
+  // unknown state must never leave every view hidden (blank popup)
+  show("connecting");
 }
 
 async function renderLogins() {
@@ -112,11 +153,37 @@ pinInput.addEventListener("input", () => {
   if (pinInput.value.trim().length === 6) document.getElementById("verify").click();
 });
 
+let noteTimer = null;
+function flashNote(text) {
+  const el = document.getElementById("refresh-note");
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => (el.hidden = true), 2500);
+}
+
 refreshBtn.addEventListener("click", async () => {
-  // drop cached passwords then re-list, so a just-changed password shows up
   refreshBtn.disabled = true;
-  await send({ type: "clearCache" });
-  await renderLogins();
+  refreshBtn.classList.add("spinning");
+  if (lastState === "needs_pin") {
+    // locked: refresh means "get me a fresh code on the mac"
+    pinError.hidden = true;
+    pinInput.value = "";
+    const res = await send({ type: "requestChallenge" });
+    if (res?.ok) render(res.state);
+    else {
+      pinError.textContent = res?.error ?? "Couldn't request a code.";
+      pinError.hidden = false;
+    }
+  } else {
+    // unlocked: drop cached passwords, re-fill the page with a fresh read (a password just
+    // changed in the Passwords app lands without re-clicking Fill), then re-list
+    const r = await send({ type: "refreshAndRefill" });
+    await renderLogins();
+    if (r?.refilled) flashNote(`Re-filled ${r.username} with the latest password`);
+    else flashNote("Passwords refreshed");
+  }
+  refreshBtn.classList.remove("spinning");
   refreshBtn.disabled = false;
 });
 

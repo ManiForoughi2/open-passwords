@@ -1,6 +1,6 @@
 // fills credentials into the page on request from popup. never treats OTP inputs
 // as fillable login fields - that misclassification is apple's balloon-on-every-OTP bug
-console.log("[Open Passwords] content script v0.26.0 loaded");
+console.log("[Open Passwords] content script v0.34.0 loaded");
 
 const OTP_AUTOCOMPLETE = /one-time-code/i;
 const OTP_HINT = /\b(otp|one[\s-]?time|verification|2fa|mfa|sms[\s-]?code|auth[\s-]?code|security[\s-]?code|passcode)\b/i;
@@ -25,6 +25,21 @@ function isPasswordField(el) {
   return el instanceof HTMLInputElement && el.type === "password";
 }
 
+// fields that were type=password at any point. a show-password toggle flips them to text at
+// submit time, which made the collector miss them and even mistake their value for a username
+const everPassword = new WeakSet();
+
+function isPasswordish(el) {
+  if (!(el instanceof HTMLInputElement)) return false;
+  if (el.type === "password") return true;
+  if (everPassword.has(el)) return true;
+  const t = (el.type || "text").toLowerCase();
+  if (!["text", ""].includes(t)) return false;
+  const ac = (el.getAttribute("autocomplete") || "").toLowerCase();
+  if (ac.includes("password")) return true;
+  return /passw|pwd/i.test(attrBlob(el));
+}
+
 // never a login even if attrs contain user/email (search, tag, comment, address, checkout)
 const NONLOGIN_HINT =
   /\b(search|find|filter|query|lookup|tag|tags|mention|comment|reply|message|chat|post|caption|note|subject|topic|recipient|address|street|city|state|zip|postal|country|first[\s-]?name|last[\s-]?name|full[\s-]?name|company|title|url|website|coupon|promo|voucher|gift[\s-]?card|amount|quantity|qty|price|card[\s-]?number|cvv|cvc|expiry|account[\s-]?(?:number|no|holder)|routing|iban|invoice|order|tracking|keyword)\b/i;
@@ -41,9 +56,38 @@ function isSearchOrComboField(el) {
 }
 
 // formless/SPA fallback: recognise logins not wrapped in a form without firing on
-// search/tag/newsletter boxes that have no password in sight
-function pageHasVisiblePassword() {
-  return Array.from(document.querySelectorAll('input[type="password"]')).some(isVisible);
+// search/tag/newsletter boxes that have no password in sight. also scans the field's own
+// shadow root, where document.querySelectorAll cant see
+function pageHasVisiblePassword(field) {
+  if (Array.from(document.querySelectorAll('input[type="password"]')).some(isVisible)) return true;
+  const root = field?.getRootNode?.();
+  if (root && root !== document && root.querySelectorAll) {
+    return Array.from(root.querySelectorAll('input[type="password"]')).some(isVisible);
+  }
+  return false;
+}
+
+// unambiguous "this box takes your account identifier" markers
+function hasStrongIdentitySignal(el) {
+  const t = (el.type || "text").toLowerCase();
+  const ac = (el.getAttribute("autocomplete") || "").toLowerCase();
+  if (ac.includes("username") || ac.includes("email")) return true;
+  if (t === "email") return true;
+  return /\b(e[\s-]?mail|sign[\s-]?in[\s-]?id|log[\s-]?in[\s-]?id|user[\s-]?id|username)\b/i.test(attrBlob(el));
+}
+
+const LOGINISH = /log[\s_-]?in|sign[\s_-]?in|auth|session|sso|oauth|account|idp|passport/i;
+
+// the page or form reads like a login flow. gates the two-step case (email now, password on
+// the next screen) where no password field exists yet
+function loginishContext(el) {
+  if (LOGINISH.test(location.hostname + location.pathname)) return true;
+  const form = el.form;
+  if (form && LOGINISH.test(form.getAttribute("action") || "")) return true;
+  const scope = form || document;
+  return Array.from(scope.querySelectorAll("button, input[type=submit]")).some((b) =>
+    /\b(sign[\s-]?in|log[\s-]?in|continue|next)\b/i.test(b.textContent || b.value || ""),
+  );
 }
 
 function isUsernameField(el) {
@@ -53,21 +97,14 @@ function isUsernameField(el) {
   const t = (el.type || "text").toLowerCase();
   if (!["text", "email", "tel", ""].includes(t)) return false;
 
-  const blob = attrBlob(el);
-  // reject search/tag/comment/address/checkout even if it also has user/email/account
-  // ("account number", "search users", "email a friend", "tag a user")
-  if (NONLOGIN_HINT.test(blob)) return false;
+  // strong identity signals win over the nonlogin heuristic below. a placeholder like "E-mail
+  // address" contains "address", which NONLOGIN_HINT would otherwise reject (the nintendo bug)
+  if (hasStrongIdentitySignal(el)) return true;
 
-  const ac = (el.getAttribute("autocomplete") || "").toLowerCase();
-  if (ac.includes("username")) return true;
-  // autocomplete=email is a candidate but the login gate (needs a password nearby)
-  // decides, so a lone newsletter email box wont pass on its own
-  if (ac.includes("email")) return true;
-  // a bare type=email input is an identifier even with no autocomplete attr (how most signups
-  // mark the username). NONLOGIN_HINT + the password-nearby gate keep newsletter boxes out
-  if (t === "email") return true;
-  // require a login-specific token, bare account substrings are too broad
-  return /\b(user(name)?|login|signin|sign[\s-]?in|userid|loginid|e[\s-]?mail)\b/i.test(blob);
+  // otherwise a weak login token still counts, but reject search/tag/comment/address/checkout
+  const blob = attrBlob(el);
+  if (NONLOGIN_HINT.test(blob)) return false;
+  return /\b(user|login|signin|sign[\s-]?in|loginid)\b/i.test(blob);
 }
 
 // use the native prototype value setter: react/vue/angular patch the element's own
@@ -122,9 +159,15 @@ function isFillable(el) {
 }
 
 // fill near the anchor the user acted on so a multi-form page fills the RIGHT one.
-// scope to the anchor's form when it has one, else nearest password to the anchor
+// scope to the anchor's form when it has one, else nearest password to the anchor.
+// includes the anchor's shadow root, which document.querySelectorAll cant reach
 function fillCredentials(username, password, anchor) {
-  const inputs = Array.from(document.querySelectorAll("input")).filter(isFillable);
+  const pool = new Set(document.querySelectorAll("input"));
+  const root = anchor?.getRootNode?.();
+  if (root && root !== document && root.querySelectorAll) {
+    for (const i of root.querySelectorAll("input")) pool.add(i);
+  }
+  const inputs = Array.from(pool).filter(isFillable);
   let passwords = inputs.filter(isPasswordField);
   let usernames = inputs.filter(isUsernameField);
 
@@ -164,6 +207,7 @@ function fillCredentials(username, password, anchor) {
   }
   if (password && firstPw) {
     setValue(firstPw, password);
+    everPassword.add(firstPw);
     filled = true;
   }
   return filled;
@@ -187,7 +231,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: false, filled: false, error: "origin mismatch" });
     return true;
   }
-  const filled = fillCredentials(msg.username, msg.password, fillAnchor);
+  const filled = fillCredentials(msg.username, msg.password, liveField(fillAnchor));
   // remember what we filled so a submit right after doesnt re-offer to save this existing login
   if (filled) lastAutofill = { host: location.hostname, password: msg.password, at: Date.now() };
   if (filled && msg.notes && msg.notes.trim()) showFilledNote(msg.notes.trim(), fillAnchor);
@@ -237,7 +281,11 @@ function isLoginField(el) {
   // formless or password-not-in-this-form (SPA two-step, late password): only offer if a
   // visible password exists somewhere - evidence this is a login screen. without this the
   // old unconditional formless return fired on instagram tag boxes, search, newsletter
-  if (pageHasVisiblePassword()) return true;
+  if (pageHasVisiblePassword(el)) return true;
+
+  // two-step first page (email now, password next screen): no password anywhere yet, so gate
+  // on a strong identifier plus a login-looking url/action/button instead
+  if (hasStrongIdentitySignal(el) && loginishContext(el)) return true;
 
   return false;
 }
@@ -262,19 +310,15 @@ function showFilledNote(notes, field) {
       : { left: 16, bottom: 16, width: 220 };
   const box = document.createElement("div");
   box.setAttribute("data-open-passwords", "note");
+  glassify(box);
   Object.assign(box.style, {
     position: "absolute",
     zIndex: "2147483647",
     left: `${window.scrollX + r.left}px`,
     top: `${window.scrollY + r.bottom + 2}px`,
     maxWidth: "320px",
-    background: "Canvas",
-    color: "CanvasText",
-    border: "1px solid rgba(128,128,128,0.4)",
-    borderRadius: "8px",
-    boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
-    font: "12px -apple-system, system-ui, sans-serif",
-    padding: "8px 10px",
+    fontSize: "12px",
+    padding: "8px 12px",
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
   });
@@ -363,35 +407,86 @@ function positionBox() {
   }
   const r = anchorField.getBoundingClientRect();
   suggestionEl.style.left = `${window.scrollX + r.left}px`;
-  suggestionEl.style.top = `${window.scrollY + r.bottom + 2}px`;
   suggestionEl.style.minWidth = `${Math.max(r.width, 200)}px`;
+  // flip above the field when there's no room below, so options never render off-screen
+  const h = suggestionEl.offsetHeight || 0;
+  const vh = window.innerHeight || document.documentElement.clientHeight;
+  if (r.bottom + 2 + h > vh && r.top - 2 - h > 0) {
+    suggestionEl.style.top = `${window.scrollY + r.top - h - 2}px`;
+  } else {
+    suggestionEl.style.top = `${window.scrollY + r.bottom + 2}px`;
+  }
+}
+
+// sf pro on macOS via -apple-system, bundled Open Runde elsewhere
+const UI_FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Open Runde", system-ui, sans-serif';
+
+let fontFaceInjected = false;
+function ensureFontFace() {
+  if (fontFaceInjected) return;
+  fontFaceInjected = true;
+  try {
+    const css = [
+      ["Regular", 400],
+      ["Medium", 500],
+      ["Semibold", 600],
+    ]
+      .map(
+        ([w, n]) =>
+          `@font-face{font-family:"Open Runde";font-weight:${n};font-display:swap;src:url("${chrome.runtime.getURL(`fonts/OpenRunde-${w}.woff2`)}") format("woff2");}`,
+      )
+      .join("");
+    const st = document.createElement("style");
+    st.textContent = css;
+    (document.head || document.documentElement).appendChild(st);
+  } catch {}
+}
+
+// apple liquid-glass look: translucent, blurred, big radius, hairline border, specular top
+// edge. solid Canvas stays as the fallback where light-dark() is unsupported
+function glassify(el) {
+  Object.assign(el.style, {
+    background: "Canvas",
+    color: "CanvasText",
+    colorScheme: "light dark",
+    border: "1px solid rgba(128,128,128,0.35)",
+    borderRadius: "14px",
+    boxShadow: "0 12px 32px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.10)",
+    backdropFilter: "blur(24px) saturate(180%)",
+    webkitBackdropFilter: "blur(24px) saturate(180%)",
+    overflow: "hidden",
+    font: `13px/1.4 ${UI_FONT}`,
+  });
+  el.style.setProperty("background", "light-dark(rgba(252,252,253,0.72), rgba(28,28,30,0.66))");
+  el.style.setProperty("border-color", "light-dark(rgba(0,0,0,0.10), rgba(255,255,255,0.14))");
+  el.style.setProperty(
+    "box-shadow",
+    "0 12px 32px rgba(0,0,0,0.22), inset 0 0.5px 0 light-dark(rgba(255,255,255,0.75), rgba(255,255,255,0.12))",
+  );
 }
 
 function buildSuggestionBox(field) {
   removeSuggestion();
+  ensureFontFace();
   anchorField = field;
   const box = document.createElement("div");
   box.setAttribute("data-open-passwords", "suggestions");
   box.setAttribute("role", "listbox");
   box.setAttribute("aria-label", "Open Passwords suggestions");
+  glassify(box);
   Object.assign(box.style, {
     position: "absolute",
     zIndex: "2147483647",
-    background: "Canvas",
-    color: "CanvasText",
-    border: "1px solid rgba(128,128,128,0.4)",
-    borderRadius: "8px",
-    boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
-    font: "13px -apple-system, system-ui, sans-serif",
-    overflow: "hidden",
   });
   const header = document.createElement("div");
   header.textContent = "Open Passwords";
   Object.assign(header.style, {
-    padding: "6px 10px",
+    padding: "7px 12px",
     fontSize: "11px",
-    opacity: "0.6",
-    borderBottom: "1px solid rgba(128,128,128,0.2)",
+    fontWeight: "600",
+    letterSpacing: "0.02em",
+    opacity: "0.55",
+    borderBottom: "1px solid rgba(128,128,128,0.18)",
   });
   box.appendChild(header);
   document.body.appendChild(box);
@@ -416,18 +511,19 @@ async function buildLockedSuggestion(field, onUnlock) {
   input.maxLength = 6;
   input.placeholder = "------";
   Object.assign(input.style, {
-    margin: "4px 10px 6px",
-    width: "calc(100% - 20px)",
-    padding: "8px",
-    fontSize: "16px",
-    letterSpacing: "4px",
+    margin: "4px 12px 8px",
+    width: "calc(100% - 24px)",
+    padding: "9px",
+    font: `16px ${UI_FONT}`,
+    letterSpacing: "5px",
     textAlign: "center",
-    border: "1px solid rgba(128,128,128,0.4)",
-    borderRadius: "6px",
+    border: "1px solid rgba(128,128,128,0.35)",
+    borderRadius: "10px",
     background: "Canvas",
     color: "CanvasText",
     boxSizing: "border-box",
   });
+  input.style.setProperty("background", "light-dark(rgba(255,255,255,0.55), rgba(0,0,0,0.28))");
   box.appendChild(input);
 
   const status = document.createElement("div");
@@ -565,16 +661,35 @@ function generateAlphanumericPassword(len = 15) {
   return chars.join("");
 }
 
+// react can remount the input between dropdown build and click, detaching our reference so
+// the fill "works" but shows nothing. re-resolve by id/name, else the visible password field
+function liveField(field) {
+  if (!field || field.isConnected) return field;
+  if (field.id) {
+    const byId = document.getElementById(field.id);
+    if (byId instanceof HTMLInputElement) return byId;
+  }
+  if (field.name) {
+    const byName = document.querySelector(`input[name="${CSS.escape(field.name)}"]`);
+    if (byName instanceof HTMLInputElement) return byName;
+  }
+  return anchorPwField(document) || field;
+}
+
 // fill a chosen generated password into the focused field and any empty confirm field in the
 // same form. the submit save-flow then stores it (username + this password) in apple passwords
 function fillGeneratedPassword(field, pw) {
+  field = liveField(field);
   const targets = new Set([field]);
   for (const p of Array.from(document.querySelectorAll('input[type="password"]')).filter(isFillable)) {
     if (p === field || p.value) continue;
     if (p.form && field.form && p.form !== field.form) continue;
     targets.add(p);
   }
-  for (const t of targets) setValue(t, pw);
+  for (const t of targets) {
+    setValue(t, pw);
+    everPassword.add(t);
+  }
   // remember we generated this so submit always offers to save it (reset page / password change)
   lastGenerated = { host: location.hostname, password: pw, at: Date.now() };
 }
@@ -586,7 +701,7 @@ function appendLoginRows(box, field, logins) {
     const row = document.createElement("div");
     row.textContent = login.username || "(no username)";
     Object.assign(row.style, {
-      padding: "8px 10px",
+      padding: "8px 12px",
       cursor: "pointer",
       whiteSpace: "nowrap",
       overflow: "hidden",
@@ -612,7 +727,7 @@ function appendGeneratorOptions(box, field, separatorAbove) {
     const item = document.createElement("div");
     item.setAttribute("data-op-generate", "1");
     Object.assign(item.style, {
-      padding: "8px 10px",
+      padding: "8px 12px",
       cursor: "pointer",
       borderTop: idx === 0 && separatorAbove ? "1px solid rgba(128,128,128,0.25)" : "none",
     });
@@ -659,6 +774,7 @@ async function buildOfferSuggestion(field) {
     registerRow(row, () => buildLockedSuggestion(field));
     box.appendChild(row);
     if (hasGenerator) appendGeneratorOptions(box, field, true);
+    positionBox();
     return;
   }
 
@@ -666,6 +782,7 @@ async function buildOfferSuggestion(field) {
   if (logins.length) appendLoginRows(box, field, logins);
   if (hasGenerator) appendGeneratorOptions(box, field, logins.length > 0);
   if (!logins.length && !hasGenerator) removeSuggestion();
+  else positionBox(); // final height known now, flip above the field if below the fold
 }
 
 // post-unlock chooser reuses the same row list
@@ -724,7 +841,11 @@ function frameIsSafe() {
 }
 
 async function onFocusIn(e) {
-  const field = e.target;
+  // focusin from inside a shadow root retargets e.target to the host, composedPath has the
+  // real input
+  const field = (e.composedPath ? e.composedPath()[0] : null) || e.target;
+  // remember password fields before any show-password toggle flips them to text
+  if (field instanceof HTMLInputElement && field.type === "password") everPassword.add(field);
   if (!(field instanceof HTMLInputElement) || !isLoginField(field)) {
     return;
   }
@@ -783,15 +904,28 @@ let lastSaveAt = 0;
 // treat a control as a submit if it is type=submit, or a button whose label reads like
 // a sign-in / sign-up / save action (covers SPA logins with no real <form> submit)
 const SUBMITY_LABEL =
-  /\b(sign[\s-]?in|sign[\s-]?up|log[\s-]?in|register|create[\s-]?account|save|update|change[\s-]?password|continue|next|submit)\b/i;
+  /\b(sign[\s-]?in|sign[\s-]?up|log[\s-]?in|register|create[\s-]?account|save|update|reset|confirm|done|set[\s-]?password|change[\s-]?password|continue|next|submit)\b/i;
+
+// ids and names carry no word boundaries ("findpwd", "submit_btn", "loginBtn"), so match
+// bare substrings there - a generic label like "OK" only signals via its id/name
+const SUBMITY_ATTR = /pwd|passw|reset|submit|login|signin|confirm|continue|next|done|save/i;
 
 function isSubmitControl(el) {
   if (!(el instanceof Element)) return false;
   const tag = el.tagName.toLowerCase();
   const type = (el.getAttribute("type") || "").toLowerCase();
   if ((tag === "button" || tag === "input") && type === "submit") return true;
+  const attrs = `${el.getAttribute("name") || ""} ${el.id || ""}`;
   if (tag === "button" && (type === "" || type === "button")) {
-    return SUBMITY_LABEL.test((el.textContent || el.value || attrBlob(el)) ?? "");
+    return SUBMITY_LABEL.test((el.textContent || el.value || "") ?? "") || SUBMITY_ATTR.test(attrs);
+  }
+  // old-school pages (tplink) submit via <input type=button value="OK" id="findpwd">
+  if (tag === "input" && type === "button") {
+    return SUBMITY_LABEL.test(el.value || "") || SUBMITY_ATTR.test(attrs);
+  }
+  // SPA "buttons" that arent buttons: styled div/a with role=button (sling-style reset pages)
+  if ((el.getAttribute("role") || "").toLowerCase() === "button" || tag === "a") {
+    return SUBMITY_LABEL.test((el.textContent || attrBlob(el)) ?? "");
   }
   return false;
 }
@@ -802,15 +936,29 @@ function isSubmitControl(el) {
 function collectSubmittedCredentials(scope) {
   const root = scope && scope.querySelectorAll ? scope : document;
   const inputs = Array.from(root.querySelectorAll("input"));
-  const pws = inputs.filter((i) => isPasswordField(i) && i.value);
+  // isPasswordish because a show-password toggle leaves the field type=text at submit
+  const pws = inputs.filter((i) => isPasswordish(i) && i.value);
   if (!pws.length) return null;
-  const password = pws[pws.length - 1].value;
+  // new password = the value typed twice (new+confirm pair), else the new-password field,
+  // else last. "last" alone saved the OLD password when current sat below new + confirm
+  let password = pws[pws.length - 1].value;
+  const counts = new Map();
+  for (const p of pws) counts.set(p.value, (counts.get(p.value) || 0) + 1);
+  const dup = [...counts.entries()].find(([, n]) => n >= 2);
+  const marked = pws.find((p) => (p.getAttribute("autocomplete") || "").toLowerCase().includes("new-password"));
+  if (dup) password = dup[0];
+  else if (marked) password = marked.value;
   const firstPw = pws[0];
   // field sits before the (first) password in document order
   const before = (el) => el.compareDocumentPosition(firstPw) & Node.DOCUMENT_POSITION_FOLLOWING;
 
+  // never let a password field or a password VALUE be the username. this is what saved
+  // credentials with the password in the username slot on toggled reset forms
+  const pwValues = new Set(pws.map((p) => p.value));
+  const usable = (i) => !isPasswordish(i) && !pwValues.has(i.value.trim());
+
   // preferred: a real username/email field that precedes the password
-  const strict = inputs.filter((i) => isUsernameField(i) && i.value);
+  const strict = inputs.filter((i) => isUsernameField(i) && i.value && usable(i));
   const strictBefore = strict.filter(before);
   let userEl = strictBefore.length ? strictBefore[strictBefore.length - 1] : strict[0] || null;
 
@@ -824,7 +972,7 @@ function collectSubmittedCredentials(scope) {
       return true;
     };
     const guess = inputs.filter((i) => {
-      if (!i.value || isPasswordField(i)) return false;
+      if (!i.value || !usable(i)) return false;
       if (isOtpField(i) || isSearchOrComboField(i)) return false;
       const t = (i.type || "text").toLowerCase();
       if (!["text", "email", "tel", ""].includes(t)) return false;
@@ -842,7 +990,7 @@ function collectSubmittedCredentials(scope) {
 
 function anchorPwField(root) {
   const scope = root && root.querySelectorAll ? root : document;
-  const pws = Array.from(scope.querySelectorAll('input[type="password"]'));
+  const pws = Array.from(scope.querySelectorAll("input")).filter(isPasswordish);
   return pws.find(isVisible) || pws[0] || null;
 }
 
@@ -875,7 +1023,7 @@ function showSaveAccountChooser(existing, detected, password, field) {
     const row = document.createElement("div");
     row.textContent = u;
     Object.assign(row.style, {
-      padding: "8px 10px",
+      padding: "8px 12px",
       cursor: "pointer",
       whiteSpace: "nowrap",
       overflow: "hidden",
@@ -928,15 +1076,16 @@ async function maybeOfferSave(scope) {
     return;
   }
 
-  // dedupe, claimed synchronously before any await ("shows up twice" fix)
+  // dedupe, claimed synchronously before any await ("shows up twice" fix). 15s covers the
+  // click+submit+Enter burst without eating a genuine resubmit a minute later
   const key = `${location.hostname} ${cred.username || savePassword}`;
   const now = Date.now();
-  if (key === lastSaveKey && now - lastSaveAt < 60000) return;
+  if (key === lastSaveKey && now - lastSaveAt < 15000) return;
   lastSaveKey = key;
   lastSaveAt = now;
 
   const root = scope && scope.querySelectorAll ? scope : document;
-  const pwInputs = Array.from(root.querySelectorAll('input[type="password"]'));
+  const pwInputs = Array.from(root.querySelectorAll("input")).filter(isPasswordish);
   const field = pwInputs.find(isVisible) || pwInputs[0] || null;
   // create/change context vs a plain login (two+ password fields, new-password, or generated)
   const newPwCtx =
@@ -944,6 +1093,12 @@ async function maybeOfferSave(scope) {
     (cred.allPasswords || []).length >= 2 ||
     pwInputs.some((p) => (p.getAttribute("autocomplete") || "").toLowerCase().includes("new-password"));
 
+  await resolveSaveTarget(cred, savePassword, generated, newPwCtx, field);
+}
+
+// pick the account and send the save. separate from maybeOfferSave so an unlock can re-run
+// the resolution (account names arent listable while locked)
+async function resolveSaveTarget(cred, savePassword, generated, newPwCtx, field) {
   // accounts already saved for this site (names only, free, no Touch ID)
   let existing = [];
   let locked = false;
@@ -969,18 +1124,30 @@ async function maybeOfferSave(scope) {
     locked,
   });
 
-  // 1) page username matches a saved account
+  // locked: cant see accounts or write. a new-password flow is a save the user clearly wants,
+  // so unlock inline and resolve again instead of silently losing it
+  if (locked) {
+    if ((generated || newPwCtx) && field) {
+      buildLockedSuggestion(field, () => resolveSaveTarget(cred, savePassword, generated, newPwCtx, field));
+      return;
+    }
+    console.debug("[Open Passwords] save skipped: locked");
+    return;
+  }
+
+  // 1) page username matches a saved account: update on a new password, stay quiet on a
+  // plain re-login. typed resets count, not only generated ones
   if (matched) {
-    if (generated) return sendSave(matched, savePassword, field); // password change -> update it
+    if (generated || newPwCtx) return sendSave(matched, savePassword, field);
     console.debug("[Open Passwords] save skipped: existing account, no new password");
-    return; // plain re-login, dont nag
+    return;
   }
 
   // 2) page gave a real, unmatched username -> a new account (signup / new login). offer it
   if (detected) return sendSave(detected, savePassword, field);
 
   // 3) no username, reset/change on a site with saved account(s): surface them to update one
-  if (newPwCtx && !locked && existing.length) {
+  if (newPwCtx && existing.length) {
     if (existing.length === 1) return sendSave(existing[0], savePassword, field);
     return showSaveAccountChooser(existing, detected, savePassword, field);
   }
@@ -1003,7 +1170,7 @@ document.addEventListener(
   "click",
   (e) => {
     if (!e.isTrusted || !(e.target instanceof Element)) return;
-    const ctrl = e.target.closest("button, input[type=submit], input[type=button]");
+    const ctrl = e.target.closest('button, input[type=submit], input[type=button], [role="button"], a');
     if (isSubmitControl(ctrl)) maybeOfferSave(ctrl.form || document);
   },
   true,

@@ -1,10 +1,32 @@
+@font-face {
+  font-family: "Open Runde";
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/OpenRunde-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Open Runde";
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/OpenRunde-Medium.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Open Runde";
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/OpenRunde-Semibold.woff2") format("woff2");
+}
+
 :root {
   color-scheme: light dark;
   --bg: Canvas;
   --fg: CanvasText;
   --accent: #0a84ff;
   --muted: color-mix(in srgb, CanvasText 55%, Canvas);
-  --line: color-mix(in srgb, CanvasText 14%, Canvas);
+  --line: color-mix(in srgb, CanvasText 12%, Canvas);
+  --card: color-mix(in srgb, CanvasText 4%, Canvas);
+  --card-line: color-mix(in srgb, CanvasText 9%, Canvas);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Open Runde", system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -12,27 +34,46 @@
 body {
   width: 320px;
   margin: 0;
-  font: 13px/1.4 -apple-system, system-ui, sans-serif;
-  background: var(--bg);
+  font: 13px/1.4 var(--font);
   color: var(--fg);
+  /* glassy accent glow + vertical wash, the popup window itself cant be translucent */
+  background:
+    radial-gradient(120% 60% at 50% -8%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 4%, Canvas), Canvas 46%);
 }
 
 header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 11px 12px;
   border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, Canvas 55%, transparent);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
 }
-header h1 { font-size: 14px; margin: 0; font-weight: 600; flex: 1; }
+header h1 { font-size: 14px; margin: 0; font-weight: 600; flex: 1; letter-spacing: 0.01em; }
+
+@keyframes op-spin { to { transform: rotate(360deg); } }
+button.icon.spinning { animation: op-spin 0.7s linear infinite; }
+
+.note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: color-mix(in srgb, #30d158 75%, CanvasText);
+}
 
 button.icon {
   width: auto;
-  padding: 2px 7px;
-  font-size: 16px;
+  padding: 3px 8px;
+  font-size: 15px;
   line-height: 1;
-  border-radius: 6px;
-  border: 1px solid var(--line);
+  border-radius: 9px;
+  border: 1px solid var(--card-line);
+  background: var(--card);
   color: var(--muted);
 }
 button.icon:hover { color: var(--fg); }
@@ -51,48 +92,113 @@ main { padding: 12px; }
 
 input {
   width: 100%;
-  padding: 10px;
-  font-size: 20px;
+  padding: 11px;
+  font: 20px var(--font);
   letter-spacing: 6px;
   text-align: center;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
+  border: 1px solid var(--card-line);
+  border-radius: 12px;
+  background: var(--card);
   color: var(--fg);
   margin-bottom: 10px;
 }
+input:focus { outline: none; border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 
 button {
   font: inherit;
+  font-family: var(--font);
   cursor: pointer;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--bg);
+  border-radius: 11px;
+  border: 1px solid var(--card-line);
+  background: var(--card);
   color: var(--fg);
-  padding: 8px 10px;
+  padding: 9px 10px;
   width: 100%;
+  transition: background 0.12s ease;
 }
+button:hover { background: color-mix(in srgb, CanvasText 7%, Canvas); }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button.primary:hover { background: color-mix(in srgb, black 10%, var(--accent)); }
 button.link { border: none; background: none; color: var(--accent); width: auto; padding: 6px 0; }
+button.link:hover { background: none; }
 
 .logins { list-style: none; margin: 0; padding: 0; }
 .logins li {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  margin-bottom: 6px;
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1px solid var(--card-line);
+  border-radius: 14px;
+  margin-bottom: 7px;
+  box-shadow: inset 0 0.5px 0 color-mix(in srgb, white 35%, transparent);
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
-.logins .u { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.logins button { width: auto; padding: 6px 10px; }
+.logins li:hover {
+  background: color-mix(in srgb, var(--accent) 6%, Canvas);
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.logins .u { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.logins button {
+  width: auto;
+  padding: 6px 14px;
+  border-radius: 999px;
+  color: var(--accent);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 11%, Canvas);
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+.logins button:hover { background: color-mix(in srgb, var(--accent) 20%, Canvas); }
 
 /* Footer: Chrome-password guide */
 footer {
   border-top: 1px solid var(--line);
   padding: 8px 12px 12px;
 }
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.subnote { display: block; font-size: 11px; color: var(--muted); }
+
+/* ios-style switch. base input rules set width/padding, so reset explicitly */
+input.switch {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 38px;
+  height: 23px;
+  padding: 0;
+  margin: 0;
+  flex: none;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, CanvasText 22%, Canvas);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+input.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: left 0.16s ease;
+}
+input.switch:checked { background: #30d158; }
+input.switch:checked::after { left: 17px; }
+input.switch:disabled { opacity: 0.45; cursor: default; }
 footer button.link { text-align: left; font-size: 12px; opacity: 0.85; }
 .steps {
   margin-top: 8px;

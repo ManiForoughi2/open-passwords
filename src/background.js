@@ -36,6 +36,21 @@ function orderByMru(host, logins) {
   return [...logins].sort((a, b) => rank(a.username) - rank(b.username));
 }
 
+// the helper can return the same username several times (www + apex site entries). fills look
+// up by username, so identical rows can only fetch the same credential - drop the extras
+function uniqueByUsername(logins) {
+  const seen = new Set();
+  return logins.filter((l) => {
+    const k = (l.username || "").toLowerCase();
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+// what we last filled per tab, so a popup refresh can re-fill the page with a fresh read
+const lastFillByTab = new Map(); // tabId -> { host, username }
+
 // short-lived cache of decrypted passwords so re-filling the same login skips a second Touch
 // ID (apple prompts every read). plaintext in worker memory up to the TTL, cleared on lock
 const PW_CACHE_TTL_MS = 120_000; // 2 minutes
@@ -97,10 +112,14 @@ ensureConnected();
 // kills those too, a top complaint)
 function suppressChromeAutofill() {
   const svc = chrome.privacy?.services;
-  if (!svc) return;
-  try {
-    svc.passwordSavingEnabled?.set({ value: false }, () => void chrome.runtime.lastError);
-  } catch (_) {}
+  if (!svc?.passwordSavingEnabled) return;
+  // user-togglable from the popup, persisted choice. default on
+  chrome.storage?.local?.get({ suppressSaveBubble: true }, (o) => {
+    if (chrome.runtime.lastError || !o.suppressSaveBubble) return;
+    try {
+      svc.passwordSavingEnabled.set({ value: false }, () => void chrome.runtime.lastError);
+    } catch (_) {}
+  });
 }
 chrome.runtime.onInstalled.addListener(suppressChromeAutofill);
 chrome.runtime.onStartup.addListener(suppressChromeAutofill);
@@ -167,7 +186,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (!client.ready) return sendResponse({ ok: true, locked: true, logins: [] });
           try {
             const logins = await client.getLoginNamesForURL(sender.tab?.id, frameUrl);
-            sendResponse({ ok: true, locked: false, logins: orderByMru(registrableHost(frameUrl), logins) });
+            sendResponse({
+              ok: true,
+              locked: false,
+              logins: uniqueByUsername(orderByMru(registrableHost(frameUrl), logins)),
+            });
           } catch {
             sendResponse({ ok: true, locked: false, logins: [] });
           }
@@ -216,7 +239,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               { frameId }, // requesting frame only
             );
             filled = !!resp?.filled;
-            if (filled) recordMru(host, cred.username);
+            if (filled) {
+              recordMru(host, cred.username);
+              lastFillByTab.set(sender.tab.id, { host, username: cred.username });
+            }
           }
           sendResponse({ ok: true, filled });
           break;
@@ -273,7 +299,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const tab = await activeTab();
           if (!tab?.url) return sendResponse({ ok: false, error: "no active tab" });
           const logins = await client.getLoginNamesForURL(tab.id, tab.url);
-          sendResponse({ ok: true, logins: orderByMru(registrableHost(tab.url), logins) });
+          sendResponse({ ok: true, logins: uniqueByUsername(orderByMru(registrableHost(tab.url), logins)) });
           break;
         }
 
@@ -308,9 +334,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               expectedHost: host,
             });
             filled = !!resp?.filled;
-            if (filled) recordMru(host, cred.username);
+            if (filled) {
+              recordMru(host, cred.username);
+              lastFillByTab.set(tab.id, { host, username: cred.username });
+            }
           }
           sendResponse({ ok: true, filled });
+          break;
+        }
+
+        case "refreshAndRefill": {
+          // drop cache then re-fill the tab's last-filled login with a fresh read, so a
+          // password changed in the Passwords app lands without re-clicking Fill
+          pwCacheClear();
+          const tab = await activeTab();
+          const entry = tab?.id != null ? lastFillByTab.get(tab.id) : null;
+          const host = tab?.url ? registrableHost(tab.url) : null;
+          if (!entry || !host || entry.host !== host) {
+            return sendResponse({ ok: true, refilled: false });
+          }
+          try {
+            const cred = await client.getPasswordForLoginName(tab.id, tab.url, { username: entry.username });
+            if (!cred) return sendResponse({ ok: true, refilled: false });
+            pwCacheSet(host, cred);
+            const resp = await chrome.tabs.sendMessage(tab.id, {
+              type: "fill",
+              username: cred.username,
+              password: cred.password,
+              notes: cred.notes,
+              expectedHost: host,
+            });
+            sendResponse({ ok: true, refilled: !!resp?.filled, username: cred.username });
+          } catch (e) {
+            sendResponse({ ok: true, refilled: false, error: String(e?.message ?? e) });
+          }
           break;
         }
 
