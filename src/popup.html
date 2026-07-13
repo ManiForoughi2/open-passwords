@@ -48,7 +48,7 @@
       </section>
     </main>
 
-    <!-- Footer: help turn off Chrome's competing password dropdown -->
+    <!-- Footer: toggles for the browser's own password/autofill features -->
     <footer>
       <label id="pm-row" class="switch-row" hidden>
         <span>Hide browser save-password bubble<span id="pm-note" class="subnote"></span></span>
@@ -62,16 +62,6 @@
         <span>Hide browser autofill suggestions<span id="af-note" class="subnote"></span></span>
         <input type="checkbox" id="af-toggle" class="switch" />
       </label>
-      <button id="chrome-guide" class="link">Turn off Chrome passwords</button>
-      <div id="chrome-steps" class="steps" hidden>
-        <p>The save/update bubble is suppressed automatically where possible (status above). The autofill dropdown for passwords already stored in the browser can't be blocked by an extension — remove them:</p>
-        <ol>
-          <li>Click <b>Open password settings</b> below.</li>
-          <li>Turn <b>off</b> “Offer to save passwords” and “Sign in automatically”.</li>
-          <li>Delete the saved passwords there (export a CSV first if you want a backup) — with none stored, its dropdown never appears.</li>
-        </ol>
-        <button id="open-chrome-settings" class="primary">Open password settings</button>
-      </div>
     </footer>
 
     <script type="module" src="popup.js"></script>

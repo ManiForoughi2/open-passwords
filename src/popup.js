@@ -13,15 +13,6 @@ function show(name) {
   for (const [k, el] of Object.entries(views)) el.hidden = k !== name;
 }
 
-document.getElementById("chrome-guide").addEventListener("click", () => {
-  const steps = document.getElementById("chrome-steps");
-  steps.hidden = !steps.hidden;
-});
-document.getElementById("open-chrome-settings").addEventListener("click", () => {
-  // chrome:// pages cant be opened via a link, need tabs.create. maps to brave:// in brave
-  chrome.tabs.create({ url: "chrome://password-manager/settings" });
-});
-
 // togglable suppression of the browser's save/update bubble. ON sets the pref off, OFF hands
 // control back to the browser. the choice persists and the background respects it on startup
 const pmToggle = document.getElementById("pm-toggle");

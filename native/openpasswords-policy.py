@@ -9,9 +9,18 @@ import subprocess
 import sys
 
 DEFAULTS = "/usr/bin/defaults"
+# every chromium browser bundle id, incl brave variants (Origin/Beta/Nightly/Dev). writing to
+# one thats not installed is a harmless unused pref
 BUNDLES = [
     "com.brave.Browser",
+    "com.brave.Browser.origin",
+    "com.brave.Browser.beta",
+    "com.brave.Browser.nightly",
+    "com.brave.Browser.dev",
     "com.google.Chrome",
+    "com.google.Chrome.beta",
+    "com.google.Chrome.dev",
+    "com.google.Chrome.canary",
     "com.microsoft.edgemac",
     "org.chromium.Chromium",
 ]
