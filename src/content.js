@@ -1,6 +1,6 @@
 // fills credentials into the page on request from popup. never treats OTP inputs
 // as fillable login fields - that misclassification is apple's balloon-on-every-OTP bug
-console.log("[Open Passwords] content script v0.38.0 loaded");
+console.log("[Open Passwords] content script v0.40.0 loaded");
 
 const OTP_AUTOCOMPLETE = /one-time-code/i;
 const OTP_HINT = /\b(otp|one[\s-]?time|verification|2fa|mfa|sms[\s-]?code|auth[\s-]?code|security[\s-]?code|passcode)\b/i;
@@ -71,9 +71,11 @@ function pageHasVisiblePassword(field) {
 function hasStrongIdentitySignal(el) {
   const t = (el.type || "text").toLowerCase();
   const ac = (el.getAttribute("autocomplete") || "").toLowerCase();
-  if (ac.includes("username") || ac.includes("email")) return true;
+  // webauthn = a passkey field, which is also the account-identifier field (wells fargo,
+  // nintendo mark their username box "webauthn"). treat it as a login field so we offer there
+  if (ac.includes("username") || ac.includes("email") || ac.includes("webauthn")) return true;
   if (t === "email") return true;
-  return /\b(e[\s-]?mail|sign[\s-]?in[\s-]?id|log[\s-]?in[\s-]?id|user[\s-]?id|username)\b/i.test(attrBlob(el));
+  return /\b(e[\s-]?mail|sign[\s-]?in[\s-]?id|log[\s-]?in[\s-]?id|user[\s-]?id|username|passkey)\b/i.test(attrBlob(el));
 }
 
 const LOGINISH = /log[\s_-]?in|sign[\s_-]?in|auth|session|sso|oauth|account|idp|passport/i;
@@ -905,11 +907,11 @@ let lastSaveAt = 0;
 // treat a control as a submit if it is type=submit, or a button whose label reads like
 // a sign-in / sign-up / save action (covers SPA logins with no real <form> submit)
 const SUBMITY_LABEL =
-  /\b(sign[\s-]?in|sign[\s-]?up|log[\s-]?in|register|create[\s-]?account|save|update|reset|confirm|done|set[\s-]?password|change[\s-]?password|continue|next|submit)\b/i;
+  /\b(sign[\s-]?in|sign[\s-]?up|log[\s-]?in|register|create[\s-]?account|save|update|reset|confirm|done|set|apply|activate|enroll|finish|proceed|verify|join|change[\s-]?password|continue|next|submit)\b/i;
 
 // ids and names carry no word boundaries ("findpwd", "submit_btn", "loginBtn"), so match
 // bare substrings there - a generic label like "OK" only signals via its id/name
-const SUBMITY_ATTR = /pwd|passw|reset|submit|login|signin|confirm|continue|next|done|save/i;
+const SUBMITY_ATTR = /pwd|passw|reset|submit|login|signin|confirm|continue|next|done|save|set|apply/i;
 
 function isSubmitControl(el) {
   if (!(el instanceof Element)) return false;
@@ -995,64 +997,8 @@ function anchorPwField(root) {
   return pws.find(isVisible) || pws[0] || null;
 }
 
-// send the save to the helper. if the vault turns out locked, surface the PIN then retry
-function sendSave(username, password, field) {
-  console.debug("[Open Passwords] sending save", { user: username || "(none)" });
-  chrome.runtime
-    .sendMessage({ type: "maybeSave", username, password })
-    .then((res) => {
-      if (res?.ok && res.locked && field) {
-        buildLockedSuggestion(field, () =>
-          chrome.runtime.sendMessage({ type: "maybeSave", username, password }).catch(() => {}),
-        );
-      }
-    })
-    .catch(() => {});
-}
-
-// reset/change with no matching username: show the site's saved accounts so the new password
-// updates the right one. single account skips the chooser (handled by the caller)
-function showSaveAccountChooser(existing, detected, password, field) {
-  const anchor = field || anchorPwField(document);
-  if (!anchor) return sendSave(existing[0], password, null);
-  const box = buildSuggestionBox(anchor);
-  const title = document.createElement("div");
-  title.textContent = "Save password for";
-  Object.assign(title.style, { padding: "8px 10px 4px", fontSize: "12px", opacity: "0.8" });
-  box.appendChild(title);
-  for (const u of existing) {
-    const row = document.createElement("div");
-    row.textContent = u;
-    Object.assign(row.style, {
-      padding: "8px 12px",
-      cursor: "pointer",
-      whiteSpace: "nowrap",
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-    });
-    registerRow(row, () => {
-      removeSuggestion();
-      sendSave(u, password, anchor);
-    });
-    box.appendChild(row);
-  }
-  const nw = document.createElement("div");
-  nw.textContent = detected ? `New account: ${detected}` : "Save as new account";
-  Object.assign(nw.style, {
-    padding: "8px 10px",
-    cursor: "pointer",
-    borderTop: "1px solid rgba(128,128,128,0.2)",
-    opacity: "0.85",
-  });
-  registerRow(nw, () => {
-    removeSuggestion();
-    sendSave(detected, password, anchor);
-  });
-  box.appendChild(nw);
-}
-
-// decide who to save the submitted password for. key case: a reset/change with no usable
-// username where the vault already has account(s) - attach it to an existing one, not a dupe
+// collect the submitted credential and hand it to the background to resolve + save. awaiting
+// the account lookup here used to lose the save when a reset form redirected on submit
 async function maybeOfferSave(scope) {
   if (!frameIsSafe()) return;
   const cred = collectSubmittedCredentials(scope);
@@ -1077,85 +1023,39 @@ async function maybeOfferSave(scope) {
     return;
   }
 
-  // dedupe, claimed synchronously before any await ("shows up twice" fix). 15s covers the
-  // click+submit+Enter burst without eating a genuine resubmit a minute later
+  // dedupe, claimed synchronously ("shows up twice" fix). 15s covers the click+submit+Enter
+  // burst without eating a genuine resubmit a minute later
   const key = `${location.hostname} ${cred.username || savePassword}`;
   const now = Date.now();
   if (key === lastSaveKey && now - lastSaveAt < 15000) return;
   lastSaveKey = key;
   lastSaveAt = now;
 
+  // create/change context vs a plain login (two+ password fields, new-password, or generated)
   const root = scope && scope.querySelectorAll ? scope : document;
   const pwInputs = Array.from(root.querySelectorAll("input")).filter(isPasswordish);
-  const field = pwInputs.find(isVisible) || pwInputs[0] || null;
-  // create/change context vs a plain login (two+ password fields, new-password, or generated)
   const newPwCtx =
     generated ||
     (cred.allPasswords || []).length >= 2 ||
     pwInputs.some((p) => (p.getAttribute("autocomplete") || "").toLowerCase().includes("new-password"));
 
-  await resolveSaveTarget(cred, savePassword, generated, newPwCtx, field);
-}
-
-// pick the account and send the save. separate from maybeOfferSave so an unlock can re-run
-// the resolution (account names arent listable while locked)
-async function resolveSaveTarget(cred, savePassword, generated, newPwCtx, field) {
-  // accounts already saved for this site (names only, free, no Touch ID)
-  let existing = [];
-  let locked = false;
-  try {
-    const r = await chrome.runtime.sendMessage({ type: "inlineLogins" });
-    if (r?.ok) {
-      locked = !!r.locked;
-      existing = (r.logins || []).map((l) => l.username).filter(Boolean);
-    }
-  } catch {}
-
-  const detected = cred.username;
-  const matched = detected && existing.find((u) => u.toLowerCase() === detected.toLowerCase());
-
-  console.debug("[Open Passwords] save-check", {
+  // fire and forget - awaiting a reply would let a navigating submit kill us before the save
+  // lands. if the vault is locked the background stashes it and saves on the next unlock
+  console.debug("[Open Passwords] handing save to background", {
     host: location.hostname,
-    user: detected || "(none)",
-    pwFields: (cred.allPasswords || []).length,
+    user: cred.username || "(none)",
     generated,
     newPwCtx,
-    existingCount: existing.length,
-    matched: !!matched,
-    locked,
   });
-
-  // locked: cant see accounts or write. a new-password flow is a save the user clearly wants,
-  // so unlock inline and resolve again instead of silently losing it
-  if (locked) {
-    if ((generated || newPwCtx) && field) {
-      buildLockedSuggestion(field, () => resolveSaveTarget(cred, savePassword, generated, newPwCtx, field));
-      return;
-    }
-    console.debug("[Open Passwords] save skipped: locked");
-    return;
-  }
-
-  // 1) page username matches a saved account: update on a new password, stay quiet on a
-  // plain re-login. typed resets count, not only generated ones
-  if (matched) {
-    if (generated || newPwCtx) return sendSave(matched, savePassword, field);
-    console.debug("[Open Passwords] save skipped: existing account, no new password");
-    return;
-  }
-
-  // 2) page gave a real, unmatched username -> a new account (signup / new login). offer it
-  if (detected) return sendSave(detected, savePassword, field);
-
-  // 3) no username, reset/change on a site with saved account(s): surface them to update one
-  if (newPwCtx && existing.length) {
-    if (existing.length === 1) return sendSave(existing[0], savePassword, field);
-    return showSaveAccountChooser(existing, detected, savePassword, field);
-  }
-
-  // 4) otherwise only a generated password proceeds (native sheet asks for the username)
-  if (generated) return sendSave(detected, savePassword, field);
-  console.debug("[Open Passwords] save skipped: no username");
+  chrome.runtime
+    .sendMessage({
+      type: "resolveSave",
+      username: cred.username,
+      password: savePassword,
+      generated,
+      newPwCtx,
+    })
+    .catch(() => {});
 }
 
 document.addEventListener(

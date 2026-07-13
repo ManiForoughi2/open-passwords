@@ -57,8 +57,9 @@ pmToggle.addEventListener("change", () => {
 
 renderPmToggle();
 
-// hides the browser's password manager wholesale (bubbles, key icon, autofill). extensions
-// cant write macOS policies, so this drives our own native helper (native/install.sh)
+// hides the browser's password manager via a real macOS policy. a user-level `defaults write`
+// isnt a forced policy (the browser ignores it), so the helper builds a config profile and
+// opens it - the user approves it once in System Settings and then it sticks
 const policyToggle = document.getElementById("policy-toggle");
 const policyNote = document.getElementById("policy-note");
 
@@ -88,16 +89,20 @@ async function renderPolicyToggle() {
 }
 
 policyToggle.addEventListener("change", async () => {
+  const on = policyToggle.checked;
   policyToggle.disabled = true;
-  const r = await policyMsg(policyToggle.checked ? "set" : "clear");
+  const r = await policyMsg(on ? "set" : "clear");
   policyToggle.disabled = false;
   if (r.error || !r.ok) {
     policyNote.textContent = "helper failed - run native/install.sh";
-    policyToggle.checked = !policyToggle.checked;
+    policyToggle.checked = !on;
     return;
   }
+  // reflect the REAL forced-policy state; the profile only sticks once approved
   policyToggle.checked = !!r.hidden;
-  policyNote.textContent = "restart the browser to apply";
+  if (on && !r.hidden) policyNote.textContent = "approve the profile in System Settings, then reopen this popup";
+  else if (!on && r.hidden) policyNote.textContent = "remove the profile in System Settings, then reopen this popup";
+  else policyNote.textContent = "";
 });
 
 renderPolicyToggle();

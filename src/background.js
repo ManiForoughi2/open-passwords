@@ -36,6 +36,51 @@ function orderByMru(host, logins) {
   return [...logins].sort((a, b) => rank(a.username) - rank(b.username));
 }
 
+// which account a submitted password attaches to. returns a username ("" lets the native sheet
+// ask), or null to save nothing. runs in the background, not the page, so a reset form that
+// redirects on submit cant tear it down mid-lookup and lose the save
+function pickSaveTarget({ host, existing, detected, generated, newPwCtx }) {
+  const matched = detected && existing.find((u) => u.toLowerCase() === detected.toLowerCase());
+  // update only on a new password, stay quiet on a plain re-login
+  if (matched) return generated || newPwCtx ? matched : null;
+  if (detected) return detected;
+  // no username on a reset with saved account(s): attach to the MRU one. apple's sheet shows it
+  // and lets the user pick another before confirming
+  if (newPwCtx && existing.length) {
+    return orderByMru(host, existing.map((u) => ({ username: u })))[0].username;
+  }
+  if (generated) return "";
+  return null;
+}
+
+// new-password saves that arrived while the vault was locked. a reset can navigate away before
+// the user unlocks, so we stash the save and complete it the moment they do
+const pendingSaves = [];
+function queuePendingSave(save) {
+  const k = `${save.host} ${(save.detected || "").toLowerCase()}`;
+  const i = pendingSaves.findIndex((p) => `${p.host} ${(p.detected || "").toLowerCase()}` === k);
+  if (i >= 0) pendingSaves.splice(i, 1); // newest wins
+  pendingSaves.push(save);
+  while (pendingSaves.length > 10) pendingSaves.shift();
+}
+async function flushPendingSaves() {
+  if (!client.ready || !pendingSaves.length) return;
+  const batch = pendingSaves.splice(0);
+  for (const s of batch) {
+    try {
+      let existing = [];
+      try {
+        existing = (await client.getLoginNamesForURL(s.tabId, s.frameUrl))
+          .map((l) => l.username)
+          .filter(Boolean);
+      } catch {}
+      const target = pickSaveTarget({ ...s, existing });
+      if (target === null) continue;
+      await client.saveLogin(s.tabId, s.frameUrl, target, s.password);
+    } catch {}
+  }
+}
+
 // collapse identical-looking usernames: trailing/leading space, zero-width chars, case, and
 // unicode composition all equal. keeps internal spaces so distinct usernames arent merged
 function normUsername(u) {
@@ -178,7 +223,7 @@ function isLocalDevHost(host) {
 // and never return a password to the page (inlineFill pushes straight to the fill
 // handler, page script never sees it). verifyPin takes a PIN guess and returns lock
 // state only, never vault data
-const CONTENT_ALLOWED = new Set(["inlineLogins", "inlineFill", "requestChallenge", "verifyPin", "maybeSave"]);
+const CONTENT_ALLOWED = new Set(["inlineLogins", "inlineFill", "requestChallenge", "verifyPin", "resolveSave"]);
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
@@ -264,11 +309,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           break;
         }
 
-        case "maybeSave": {
-          // a content script offering credentials the user just submitted. the native
-          // macOS prompt is the real gate (nothing is written to the vault without the
-          // user confirming there), so we only forward. pin to the sender frame's own
-          // origin, never the top tab's
+        case "resolveSave": {
+          // resolve the account + drive the native save here, in the background, so a page that
+          // navigates on submit cant kill it mid-flight. the macOS sheet is still the write gate.
+          // origin is the sender frame's own url, never the top tab's
           const frameUrl = sender.url;
           if (!frameUrl || sender.tab?.id == null) {
             return sendResponse({ ok: false, error: "no frame" });
@@ -278,9 +322,45 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return sendResponse({ ok: false, error: "refusing to save from a non-HTTPS frame" });
           }
           if (!msg.password) return sendResponse({ ok: false, error: "no password" });
+          const detected = (msg.username || "").trim();
+          const generated = !!msg.generated;
+          const newPwCtx = !!msg.newPwCtx;
           await ensureConnected();
-          if (!client.ready) return sendResponse({ ok: true, saved: false, locked: true });
-          await client.saveLogin(sender.tab.id, frameUrl, msg.username ?? "", msg.password);
+
+          // locked: cant list accounts or write. a new-password save is one the user clearly
+          // wants, so stash it and complete it on unlock; a plain re-login isnt worth deferring
+          if (!client.ready) {
+            if (generated || newPwCtx) {
+              queuePendingSave({
+                host,
+                frameUrl,
+                tabId: sender.tab.id,
+                detected,
+                password: msg.password,
+                generated,
+                newPwCtx,
+              });
+            }
+            return sendResponse({ ok: true, saved: false, locked: true });
+          }
+
+          let existing = [];
+          try {
+            existing = (await client.getLoginNamesForURL(sender.tab.id, frameUrl))
+              .map((l) => l.username)
+              .filter(Boolean);
+          } catch {}
+          const target = pickSaveTarget({ host, existing, detected, generated, newPwCtx });
+          console.debug("[Open Passwords] resolveSave", {
+            host,
+            detected: detected || "(none)",
+            generated,
+            newPwCtx,
+            existingCount: existing.length,
+            target: target === null ? "(skip)" : target || "(ask)",
+          });
+          if (target === null) return sendResponse({ ok: true, saved: false, skipped: true });
+          await client.saveLogin(sender.tab.id, frameUrl, target, msg.password);
           sendResponse({ ok: true, saved: true });
           break;
         }
@@ -308,6 +388,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // cap so a non-responding helper cant leave the inline PIN box stuck
           await withTimeout(client.verifyPin(msg.pin), 8000, "verification timed out");
           sendResponse({ ok: true, state: client.state });
+          // just unlocked - complete any saves stashed while locked
+          if (client.ready) flushPendingSaves();
           break;
 
         case "getLogins": {
