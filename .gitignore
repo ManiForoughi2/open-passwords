@@ -3,3 +3,7 @@ node_modules/
 .DS_Store
 *.pem
 *.crx
+
+# python bytecode
+__pycache__/
+*.pyc

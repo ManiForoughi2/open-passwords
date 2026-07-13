@@ -299,12 +299,14 @@ export class ApplePasswords {
       if (res.STATUS === QueryStatus.Success) {
         const e = (res.Entries ?? [])[0];
         if (!e) return undefined;
-        // log field names (never values) to check whether the helper also sends notes
+        // log field names (never values) to check whether the helper also sends notes or a
+        // TOTP seed. if an OTP field ever shows up here we can generate verification codes
         try {
           console.debug("[Open Passwords] entry fields:", Object.keys(e));
         } catch {}
         const notes = e.NOTES ?? e.Notes ?? e.notes ?? e.NOTE ?? e.note ?? "";
-        return { username: e.USR, password: e.PWD, sites: e.sites, notes };
+        const otp = e.OTP ?? e.OTPAuth ?? e.otpauth ?? e.TOTP ?? e.totp ?? e.OTPURL ?? "";
+        return { username: e.USR, password: e.PWD, sites: e.sites, notes, otp };
       }
       if (res.STATUS === QueryStatus.NoResults) return undefined;
       throw queryStatusError(res.STATUS);

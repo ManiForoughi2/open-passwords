@@ -36,12 +36,22 @@ function orderByMru(host, logins) {
   return [...logins].sort((a, b) => rank(a.username) - rank(b.username));
 }
 
-// the helper can return the same username several times (www + apex site entries). fills look
-// up by username, so identical rows can only fetch the same credential - drop the extras
+// collapse identical-looking usernames: trailing/leading space, zero-width chars, case, and
+// unicode composition all equal. keeps internal spaces so distinct usernames arent merged
+function normUsername(u) {
+  return (u || "")
+    .normalize("NFC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+// helper returns the same username several times (www + apex entries, or a stray-space dupe).
+// fills look up by username, so extra rows only ever fetch the same credential - drop them
 function uniqueByUsername(logins) {
   const seen = new Set();
   return logins.filter((l) => {
-    const k = (l.username || "").toLowerCase();
+    const k = normUsername(l.username);
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
@@ -113,11 +123,17 @@ ensureConnected();
 function suppressChromeAutofill() {
   const svc = chrome.privacy?.services;
   if (!svc?.passwordSavingEnabled) return;
-  // user-togglable from the popup, persisted choice. default on
-  chrome.storage?.local?.get({ suppressSaveBubble: true }, (o) => {
-    if (chrome.runtime.lastError || !o.suppressSaveBubble) return;
+  // user-togglable from the popup, persisted choices. save bubble defaults on, address
+  // autofill defaults off (credit-card autofill is never touched, google pay keeps working)
+  chrome.storage?.local?.get({ suppressSaveBubble: true, suppressAddressAutofill: false }, (o) => {
+    if (chrome.runtime.lastError) return;
     try {
-      svc.passwordSavingEnabled.set({ value: false }, () => void chrome.runtime.lastError);
+      if (o.suppressSaveBubble) {
+        svc.passwordSavingEnabled.set({ value: false }, () => void chrome.runtime.lastError);
+      }
+      if (o.suppressAddressAutofill && svc.autofillAddressEnabled) {
+        svc.autofillAddressEnabled.set({ value: false }, () => void chrome.runtime.lastError);
+      }
     } catch (_) {}
   });
 }

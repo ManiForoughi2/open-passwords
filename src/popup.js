@@ -52,11 +52,103 @@ pmToggle.addEventListener("change", () => {
   if (!pref) return;
   const on = pmToggle.checked;
   chrome.storage?.local?.set({ suppressSaveBubble: on });
-  if (on) pref.set({ value: false }, () => renderPmToggle());
-  else pref.clear({}, () => renderPmToggle());
+  // read back after writing - dont trust the callback, the browser can silently refuse
+  const verify = () =>
+    pref.get({}, (d) => {
+      renderPmToggle();
+      if (on && d && d.value !== false) {
+        pmNote.textContent = "browser refused it - flip it in password settings below";
+      }
+    });
+  if (on) pref.set({ value: false }, verify);
+  else pref.clear({}, verify);
 });
 
 renderPmToggle();
+
+// hides the browser's password manager wholesale (bubbles, key icon, autofill). extensions
+// cant write macOS policies, so this drives our own native helper (native/install.sh)
+const policyToggle = document.getElementById("policy-toggle");
+const policyNote = document.getElementById("policy-note");
+
+function policyMsg(action) {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendNativeMessage("com.openpasswords.policy", { action }, (resp) => {
+        if (chrome.runtime.lastError) resolve({ error: chrome.runtime.lastError.message });
+        else resolve(resp || { error: "no reply" });
+      });
+    } catch (e) {
+      resolve({ error: String(e) });
+    }
+  });
+}
+
+async function renderPolicyToggle() {
+  const r = await policyMsg("get");
+  if (r.error || !r.ok) {
+    policyToggle.disabled = true;
+    policyNote.textContent = "needs the policy helper - run native/install.sh";
+    return;
+  }
+  policyToggle.disabled = false;
+  policyToggle.checked = !!r.hidden;
+  policyNote.textContent = "";
+}
+
+policyToggle.addEventListener("change", async () => {
+  policyToggle.disabled = true;
+  const r = await policyMsg(policyToggle.checked ? "set" : "clear");
+  policyToggle.disabled = false;
+  if (r.error || !r.ok) {
+    policyNote.textContent = "helper failed - run native/install.sh";
+    policyToggle.checked = !policyToggle.checked;
+    return;
+  }
+  policyToggle.checked = !!r.hidden;
+  policyNote.textContent = "restart the browser to apply";
+});
+
+renderPolicyToggle();
+
+// hides the browser's address/contact autofill and typed-form history (the email-list
+// dropdown). credit-card autofill stays untouched so google pay keeps working
+const afToggle = document.getElementById("af-toggle");
+const afNote = document.getElementById("af-note");
+
+function renderAfToggle() {
+  const pref = chrome.privacy?.services?.autofillAddressEnabled;
+  const row = document.getElementById("af-row");
+  if (!pref?.get) return;
+  pref.get({}, (d) => {
+    if (chrome.runtime.lastError || !d) return;
+    row.hidden = false;
+    afToggle.checked = d.value === false;
+    const controllable =
+      d.levelOfControl === "controllable_by_this_extension" ||
+      d.levelOfControl === "controlled_by_this_extension";
+    afToggle.disabled = !controllable;
+    afNote.textContent = controllable ? "" : "controlled elsewhere";
+  });
+}
+
+afToggle.addEventListener("change", () => {
+  const pref = chrome.privacy?.services?.autofillAddressEnabled;
+  if (!pref) return;
+  const on = afToggle.checked;
+  chrome.storage?.local?.set({ suppressAddressAutofill: on });
+  const verify = () =>
+    pref.get({}, (d) => {
+      renderAfToggle();
+      if (on && d && d.value !== false) {
+        afNote.textContent = "browser refused it - flip it in autofill settings";
+      }
+    });
+  if (on) pref.set({ value: false }, verify);
+  else pref.clear({}, verify);
+});
+
+renderAfToggle();
 
 function setDot(state) {
   dot.className = "dot";

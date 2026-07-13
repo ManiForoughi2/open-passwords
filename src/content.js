@@ -1,6 +1,6 @@
 // fills credentials into the page on request from popup. never treats OTP inputs
 // as fillable login fields - that misclassification is apple's balloon-on-every-OTP bug
-console.log("[Open Passwords] content script v0.34.0 loaded");
+console.log("[Open Passwords] content script v0.37.0 loaded");
 
 const OTP_AUTOCOMPLETE = /one-time-code/i;
 const OTP_HINT = /\b(otp|one[\s-]?time|verification|2fa|mfa|sms[\s-]?code|auth[\s-]?code|security[\s-]?code|passcode)\b/i;
@@ -271,12 +271,13 @@ function isLoginField(el) {
   // in a separate form (two-step / google-style logins)
   if (ac.includes("username")) return true;
 
-  // a form opting out of autofill is a strong "not a login here" signal
+  // password in the SAME form => real login. this beats autocomplete=off, which banks (wells
+  // fargo etc) set to block autofill - chrome/1password ignore it here too
+  if (form && Array.from(form.querySelectorAll("input")).some(isPasswordField)) return true;
+
+  // no password in this form. an autocomplete=off form is now a "not a login here" signal
   const formOptedOut = form && (form.getAttribute("autocomplete") || "").toLowerCase() === "off";
   if (formOptedOut) return false;
-
-  // password in the SAME form => real login
-  if (form && Array.from(form.querySelectorAll("input")).some(isPasswordField)) return true;
 
   // formless or password-not-in-this-form (SPA two-step, late password): only offer if a
   // visible password exists somewhere - evidence this is a login screen. without this the

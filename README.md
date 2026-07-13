@@ -77,6 +77,16 @@ git clone https://github.com/ManiForoughi2/open-passwords.git
 5. click the toolbar icon, type the 6-digit code your Mac shows, done
 6. go to a site with a saved login and fill it
 
+### Optional: hide the browser's own password manager
+
+The popup can suppress the browser's competing save bubble and autofill dropdown on its own (toggles in the footer). To also remove the browser's whole password manager — the omnibox key icon and built-in autofill — there's a one-time helper, since an extension can't write a macOS policy by itself:
+
+```bash
+./native/install.sh   # registers a tiny native helper, macOS only
+```
+
+Then fully quit and reopen your browser (`Cmd+Q`). The **Hide browser password manager entirely** toggle in the popup now works; it sets `PasswordManagerEnabled=false` for every Chromium browser you have. Undo anytime with `./native/uninstall.sh`. The helper only runs three fixed `defaults` commands and accepts messages solely from this extension's ID.
+
 ## How it works
 
 ```
