@@ -277,7 +277,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 type: "fill",
                 username: cred.username,
                 password: cred.password,
-                notes: cred.notes,
                 expectedHost: host,
               },
               { frameId }, // requesting frame only
@@ -408,7 +407,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               type: "fill",
               username: cred.username,
               password: cred.password,
-              notes: cred.notes,
               expectedHost: host,
             });
             filled = !!resp?.filled;
@@ -439,7 +437,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               type: "fill",
               username: cred.username,
               password: cred.password,
-              notes: cred.notes,
               expectedHost: host,
             });
             sendResponse({ ok: true, refilled: !!resp?.filled, username: cred.username });

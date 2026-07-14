@@ -1,6 +1,6 @@
 // fills credentials into the page on request from popup. never treats OTP inputs
 // as fillable login fields - that misclassification is apple's balloon-on-every-OTP bug
-console.log("[Open Passwords] content script v0.40.0 loaded");
+console.log("[Open Passwords] content script v0.42.0 loaded");
 
 const OTP_AUTOCOMPLETE = /one-time-code/i;
 const OTP_HINT = /\b(otp|one[\s-]?time|verification|2fa|mfa|sms[\s-]?code|auth[\s-]?code|security[\s-]?code|passcode)\b/i;
@@ -226,7 +226,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const filled = fillCredentials(msg.username, msg.password, liveField(fillAnchor));
   // remember what we filled so a submit right after doesnt re-offer to save this existing login
   if (filled) lastAutofill = { host: location.hostname, password: msg.password, at: Date.now() };
-  if (filled && msg.notes && msg.notes.trim()) showFilledNote(msg.notes.trim(), fillAnchor);
   sendResponse({ ok: true, filled });
   return true;
 });
@@ -244,8 +243,6 @@ let anchorField = null;
 let cachedLogins = null; // null = not fetched yet, [] = fetched none
 let navItems = []; // selectable dropdown rows: [{ el, onActivate }]
 let navIndex = -1;
-let filledNoteEl = null;
-let filledNoteTimer = null;
 
 function isLoginField(el) {
   if (!isVisible(el)) return false;
@@ -287,52 +284,6 @@ function removeSuggestion() {
   anchorField = null;
   navItems = [];
   navIndex = -1;
-}
-
-// show the entry's note by the field after a fill, dismiss on click
-function showFilledNote(notes, field) {
-  removeFilledNote();
-  const anchor = field && field.getBoundingClientRect ? field : anchorField;
-  const r =
-    anchor && anchor.getBoundingClientRect
-      ? anchor.getBoundingClientRect()
-      : { left: 16, bottom: 16, width: 220 };
-  const box = document.createElement("div");
-  box.setAttribute("data-open-passwords", "note");
-  glassify(box);
-  Object.assign(box.style, {
-    position: "absolute",
-    zIndex: "2147483647",
-    left: `${window.scrollX + r.left}px`,
-    top: `${window.scrollY + r.bottom + 2}px`,
-    maxWidth: "320px",
-    fontSize: "12px",
-    padding: "8px 12px",
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
-  });
-  const head = document.createElement("div");
-  head.textContent = "Note";
-  Object.assign(head.style, { fontSize: "11px", opacity: "0.6", marginBottom: "4px" });
-  const body = document.createElement("div");
-  body.textContent = notes;
-  box.append(head, body);
-  box.addEventListener("mousedown", (e) => {
-    e.stopPropagation();
-    removeFilledNote();
-  });
-  document.body.appendChild(box);
-  filledNoteEl = box;
-  clearTimeout(filledNoteTimer);
-  filledNoteTimer = setTimeout(removeFilledNote, 12000);
-}
-
-function removeFilledNote() {
-  if (filledNoteEl) {
-    filledNoteEl.remove();
-    filledNoteEl = null;
-  }
-  clearTimeout(filledNoteTimer);
 }
 
 // highlight active row, keep it in view
