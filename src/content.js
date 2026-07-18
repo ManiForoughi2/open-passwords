@@ -1,6 +1,6 @@
 // fills credentials into the page on request from popup. never treats OTP inputs
 // as fillable login fields - that misclassification is apple's balloon-on-every-OTP bug
-console.log("[Open Passwords] content script v0.42.0 loaded");
+console.log("[Open Passwords] content script v0.43.0 loaded");
 
 const OTP_AUTOCOMPLETE = /one-time-code/i;
 const OTP_HINT = /\b(otp|one[\s-]?time|verification|2fa|mfa|sms[\s-]?code|auth[\s-]?code|security[\s-]?code|passcode)\b/i;
@@ -225,7 +225,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   const filled = fillCredentials(msg.username, msg.password, liveField(fillAnchor));
   // remember what we filled so a submit right after doesnt re-offer to save this existing login
-  if (filled) lastAutofill = { host: location.hostname, password: msg.password, at: Date.now() };
+  if (filled) lastAutofill = { host: location.hostname, username: msg.username, password: msg.password, at: Date.now() };
   sendResponse({ ok: true, filled });
   return true;
 });
@@ -781,10 +781,18 @@ async function onFocusIn(e) {
     return;
   }
   if (!frameIsSafe()) return; // skip unrelated cross-origin iframes
-  // dont offer on a field already filled/typed into
-  if (field.value && field.value.trim() !== "") {
-    removeSuggestion();
-    return;
+  // still offer on a site/browser pre-filled login field (apple/chrome do); only stay quiet if WE just filled it
+  const v = (field.value || "").trim();
+  if (v) {
+    const justOurs =
+      lastAutofill &&
+      lastAutofill.host === location.hostname &&
+      Date.now() - lastAutofill.at < 8000 &&
+      (v === (lastAutofill.username || "") || v === (lastAutofill.password || ""));
+    if (justOurs) {
+      removeSuggestion();
+      return;
+    }
   }
   // neutral offer only - dont fetch logins or reveal anything yet. lock state checked
   // lazily on click so we dont hit the helper on every focus
