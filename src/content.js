@@ -1,12 +1,21 @@
 // fills credentials into the page on request from popup. never treats OTP inputs
 // as fillable login fields - that misclassification is apple's balloon-on-every-OTP bug
-console.log("[Open Passwords] content script v0.43.0 loaded");
+console.log("[Open Passwords] content script v0.44.0 loaded");
 
 const OTP_AUTOCOMPLETE = /one-time-code/i;
 const OTP_HINT = /\b(otp|one[\s-]?time|verification|2fa|mfa|sms[\s-]?code|auth[\s-]?code|security[\s-]?code|passcode)\b/i;
 
 function attrBlob(el) {
-  return [el.name, el.id, el.getAttribute("aria-label"), el.placeholder, el.getAttribute("autocomplete")]
+  // read the wrapping <label>/aria-labelledby too - snapchat's web login leaves the input bare and labels it there
+  let labelText = "";
+  try {
+    if (el.labels?.length) labelText = Array.from(el.labels, (l) => l.textContent).join(" ");
+    const lb = el.getAttribute("aria-labelledby");
+    if (lb) {
+      labelText += " " + lb.split(/\s+/).map((id) => el.ownerDocument.getElementById(id)?.textContent || "").join(" ");
+    }
+  } catch {}
+  return [el.name, el.id, el.getAttribute("aria-label"), el.placeholder, el.getAttribute("autocomplete"), labelText]
     .filter(Boolean)
     .join(" ");
 }
