@@ -1,6 +1,6 @@
 // fills credentials into the page on request from popup. never treats OTP inputs
 // as fillable login fields - that misclassification is apple's balloon-on-every-OTP bug
-console.log("[Open Passwords] content script v0.44.0 loaded");
+console.log("[Open Passwords] content script v0.45.0 loaded");
 
 const OTP_AUTOCOMPLETE = /one-time-code/i;
 const OTP_HINT = /\b(otp|one[\s-]?time|verification|2fa|mfa|sms[\s-]?code|auth[\s-]?code|security[\s-]?code|passcode)\b/i;
@@ -698,11 +698,22 @@ function appendGeneratorOptions(box, field, separatorAbove) {
   });
 }
 
+// the focused element, piercing shadow roots (a field inside a web component)
+function deepActiveElement() {
+  let a = document.activeElement;
+  while (a?.shadowRoot?.activeElement) a = a.shadowRoot.activeElement;
+  return a;
+}
+
+// bumped per offer so a stale async read from an earlier focus cant draw over a newer one
+let offerSeq = 0;
+
 // saved accounts first (listing names is free, no Touch ID), then generator options on a
-// new-password field. locked vault shows an unlock row
+// new-password field. locked vault shows an unlock row. fetches BEFORE building the box so an
+// empty result never flashes a box on then off - nothing shows unless theres something to show
 async function buildOfferSuggestion(field) {
-  const box = buildSuggestionBox(field);
   const hasGenerator = isNewPasswordField(field);
+  const seq = ++offerSeq;
 
   let res;
   try {
@@ -710,10 +721,16 @@ async function buildOfferSuggestion(field) {
   } catch {
     res = null;
   }
-  // the field may have been blurred and the box torn down (or rebuilt) while we awaited
-  if (suggestionEl !== box) return;
+  // a newer focus superseded this, or the field lost focus while we awaited
+  if (seq !== offerSeq || field !== deepActiveElement()) return;
 
-  if (res?.ok && res.locked) {
+  const locked = !!(res?.ok && res.locked);
+  const logins = res?.ok && !locked ? res.logins || [] : [];
+  // no accounts, not locked, no generator: stay silent instead of flashing an empty box
+  if (!locked && !logins.length && !hasGenerator) return;
+
+  const box = buildSuggestionBox(field);
+  if (locked) {
     // cant list saved accounts while locked - offer to unlock, then the generator below
     const row = document.createElement("div");
     row.textContent = "Unlock to autofill…";
@@ -725,11 +742,9 @@ async function buildOfferSuggestion(field) {
     return;
   }
 
-  const logins = res?.ok ? res.logins || [] : [];
   if (logins.length) appendLoginRows(box, field, logins);
   if (hasGenerator) appendGeneratorOptions(box, field, logins.length > 0);
-  if (!logins.length && !hasGenerator) removeSuggestion();
-  else positionBox(); // final height known now, flip above the field if below the fold
+  positionBox(); // final height known now, flip above the field if below the fold
 }
 
 // post-unlock chooser reuses the same row list
