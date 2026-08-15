@@ -19,6 +19,17 @@ import {
 const NATIVE_HOST = "com.apple.passwordmanager";
 const BROWSER_NAME = "Chrome";
 const VERSION = "1.0";
+// how long we still trust a code the Mac put on screen. past this we re-prompt rather than
+// verify against a challenge the user has probably lost track of
+const CHALLENGE_TTL_MS = 3 * 60_000;
+
+// the typed code was for a challenge that no longer exists. callers show "new code" wording
+// instead of "incorrect", because retyping the old code can never work
+function challengeError(message) {
+  const e = new Error(message);
+  e.code = "challenge_reissued";
+  return e;
+}
 
 export const Command = {
   END: 0,
@@ -53,6 +64,9 @@ export class ApplePasswords {
     this.state = State.Disconnected;
     this._waiters = new Map(); // cmd -> {resolve, reject, timer}
     this._onState = () => {};
+    this._challengeAt = 0; // when the current code went up on the Mac
+    this._challengeGen = 0; // bumped per challenge, so a queued verify can spot a stale one
+    this._challengePending = undefined; // in-flight requestChallenge, shared by callers
     // native protocol echoes the same cmd on replies with no correlation id, so two
     // in-flight requests with the same cmd collide. serialize all exchanges here
     this._lock = Promise.resolve();
@@ -91,20 +105,25 @@ export class ApplePasswords {
 
   _send(cmd, body = {}, timeoutMs = 5000) {
     if (!this.port) throw new Error("connection closed");
+    // replies carry no correlation id, so a second request on the same cmd would steal the
+    // first one's reply. refuse instead of overwriting the waiter
+    if (this._waiters.has(cmd)) return Promise.reject(new Error("another request is already in flight"));
     return new Promise((resolve, reject) => {
-      const timer =
+      const entry = { resolve, reject, timer: null };
+      entry.timer =
         timeoutMs == null
           ? null
           : setTimeout(() => {
-              this._waiters.delete(cmd);
+              // only drop our own entry, never a newer request's
+              if (this._waiters.get(cmd) === entry) this._waiters.delete(cmd);
               reject(new Error("timeout waiting for response"));
             }, timeoutMs);
-      this._waiters.set(cmd, { resolve, reject, timer });
+      this._waiters.set(cmd, entry);
       try {
         this.port.postMessage({ cmd, ...body });
       } catch (e) {
-        if (timer) clearTimeout(timer);
-        this._waiters.delete(cmd);
+        if (entry.timer) clearTimeout(entry.timer);
+        if (this._waiters.get(cmd) === entry) this._waiters.delete(cmd);
         reject(e);
       }
     });
@@ -168,13 +187,41 @@ export class ApplePasswords {
     });
   }
 
-  // ask the helper for a challenge. macOS shows the 6-digit PIN access prompt
-  async requestChallenge() {
-    if (!this.session) throw new Error("not connected");
+  // is there a challenge the user can still answer? the code on the Mac only belongs to
+  // the newest challenge, so anything else must be re-issued before we verify
+  get hasChallenge() {
+    return (
+      this.state === State.NeedsPin &&
+      this.session !== undefined &&
+      this.session.serverPublicKey !== undefined &&
+      this.session.salt !== undefined &&
+      Date.now() - this._challengeAt < CHALLENGE_TTL_MS
+    );
+  }
+
+  // ask the helper for a challenge. macOS shows the 6-digit PIN access prompt.
+  // ifNeeded keeps a live prompt alive instead of putting a second code on screen and
+  // silently invalidating the one the user is reading
+  requestChallenge({ ifNeeded = false } = {}) {
+    if (!this.session) return Promise.reject(new Error("not connected"));
+    if (ifNeeded && (this.hasChallenge || this.state === State.Unlocked)) return Promise.resolve(false);
+    // collapse concurrent requests: two prompts would race and only the last code works
+    if (this._challengePending) return this._challengePending;
+    const p = this._withLock(() => this._issueChallenge());
+    this._challengePending = p;
+    const clear = () => {
+      if (this._challengePending === p) this._challengePending = undefined;
+    };
+    p.then(clear, clear);
+    return p;
+  }
+
+  async _issueChallenge() {
     // reset prior handshake state
     this.session.serverPublicKey = undefined;
     this.session.salt = undefined;
     this.session.sharedKey = undefined;
+    this._challengeGen++;
 
     const reply = await this._send(Command.HANDSHAKE, {
       msg: {
@@ -182,7 +229,7 @@ export class ApplePasswords {
         PAKE: jsonToBase64({
           TID: this.session.username,
           MSG: MSGType.ClientKeyExchange,
-          A: this.session.serialize(bigIntToBytes(this.session.clientPublicKey)),
+          A: this.session.serialize(this.session.clientPublicKeyBytes),
           VER: VERSION,
           PROTO: [SecretSessionVersion.SRPWithRFCVerification],
         }),
@@ -197,52 +244,65 @@ export class ApplePasswords {
     if (pake.PROTO !== SecretSessionVersion.SRPWithRFCVerification) throw new Error("unsupported protocol");
 
     const B = bytesToBigInt(this.session.deserialize(pake.B));
-    const s = bytesToBigInt(this.session.deserialize(pake.s));
+    const s = this.session.deserialize(pake.s); // raw bytes, see setServerPublicKey
     this.session.setServerPublicKey(B, s);
+    this._challengeAt = Date.now();
     this._setState(State.NeedsPin);
+    return true;
   }
 
-  // if no challenge is pending (inline flow didnt issue one, or it expired) request
-  // one first, so we never verify against a half-init session (would hang or throw)
+  // a PIN is only valid for the challenge it was displayed for. verifying it against any
+  // other challenge always fails, so never quietly swap the challenge underneath the user -
+  // issue a fresh one and tell the caller to ask for the NEW code
   async verifyPin(pin) {
     if (!this.session) throw new Error("not connected");
-    if (this.session.serverPublicKey === undefined || this.session.salt === undefined) {
+    if (!this.hasChallenge) {
       await this.requestChallenge();
+      throw challengeError("Enter the new code your Mac is showing now");
     }
-    try {
-      await this.session.setSharedKey(pin);
-      const m = await this.session.computeM();
+    const gen = this._challengeGen;
+    return this._withLock(async () => {
+      // something re-issued while we queued: the typed code is for the old prompt
+      if (gen !== this._challengeGen) throw challengeError("Enter the new code your Mac is showing now");
+      try {
+        await this.session.setSharedKey(pin);
+        const m = await this.session.computeM();
 
-      const reply = await this._send(Command.HANDSHAKE, {
-        msg: {
-          QID: "m2",
-          PAKE: jsonToBase64({
-            TID: this.session.username,
-            MSG: MSGType.ClientVerification,
-            M: this.session.serialize(m, false),
-          }),
-        },
-      });
+        const reply = await this._send(Command.HANDSHAKE, {
+          msg: {
+            QID: "m2",
+            PAKE: jsonToBase64({
+              TID: this.session.username,
+              MSG: MSGType.ClientVerification,
+              M: this.session.serialize(m, false),
+            }),
+          },
+        });
 
-      const pake = JSON.parse(bytesToUtf8(base64ToBytes(reply.payload.PAKE)));
-      if (pake.TID !== this.session.username) throw new Error("verification for another session");
-      if (pake.MSG.toString() !== MSGType.ServerVerification.toString()) throw new Error("unexpected server message");
-      if (pake.ErrCode === 1) throw new Error("Incorrect PIN");
-      if (pake.ErrCode !== 0 && pake.ErrCode !== undefined) throw new Error(`verification error ${pake.ErrCode}`);
+        const pake = JSON.parse(bytesToUtf8(base64ToBytes(reply.payload.PAKE)));
+        if (pake.TID !== this.session.username) throw new Error("verification for another session");
+        if (pake.MSG.toString() !== MSGType.ServerVerification.toString()) throw new Error("unexpected server message");
+        if (pake.ErrCode === 1) throw new Error("Incorrect code");
+        if (pake.ErrCode !== 0 && pake.ErrCode !== undefined) throw new Error(`verification error ${pake.ErrCode}`);
 
-      const hamk = await this.session.computeHMAC(m);
-      if (!constantTimeEqual(this.session.deserialize(pake.HAMK), hamk))
-        throw new Error("server HAMK mismatch");
+        const hamk = await this.session.computeHMAC(m);
+        if (!constantTimeEqual(this.session.deserialize(pake.HAMK), hamk))
+          throw new Error("server HAMK mismatch");
 
-      this._setState(State.Unlocked);
-    } catch (e) {
-      // failed verify spends the challenge, clear it so next verifyPin requests a
-      // fresh one and the Mac shows a new code
-      this.session.sharedKey = undefined;
-      this.session.serverPublicKey = undefined;
-      this.session.salt = undefined;
-      throw e;
-    }
+        this._setState(State.Unlocked);
+      } catch (e) {
+        // the helper burns the challenge on a failed verify, so this code is dead now.
+        // drop it - hasChallenge goes false and the next attempt gets a fresh prompt.
+        // the session itself can be gone already if the port dropped mid-verify
+        if (this.session) {
+          this.session.sharedKey = undefined;
+          this.session.serverPublicKey = undefined;
+          this.session.salt = undefined;
+        }
+        this._challengeAt = 0;
+        throw e;
+      }
+    });
   }
 
   async _encryptedQuery(cmd, tabId, hostname, payloadBody, timeoutMs) {

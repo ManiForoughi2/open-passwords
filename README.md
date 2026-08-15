@@ -111,6 +111,16 @@ PasswordManagerBrowserExtensionHelper (macOS native, talks to iCloud Keychain)
 - no passkey or TOTP management. out of scope, this reads passwords and login names.
 - it still rides on Apple's helper. if Apple changes or breaks it, like past macOS updates have, this breaks too.
 
+## Troubleshooting
+
+### Your Mac shows a code, but the extension says it is incorrect
+
+A code belongs to one handshake. The helper ends that handshake as soon as it checks a code, right or wrong. A new handshake puts a new code on screen and ends the old one. The old prompt can stay visible after its code is dead.
+
+The extension asks for a code only when no live code exists. After a failed attempt, the message names the code to type next. If your Mac shows two prompts, use the code from the newest one. You can also select **Request a new code** in the popup.
+
+A code expires after 3 minutes. After that, the extension asks your Mac for a new code instead of checking the old one.
+
 ## Security notes
 
 - the session key lives only in the worker's memory and is never written to disk

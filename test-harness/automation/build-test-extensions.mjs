@@ -66,13 +66,16 @@ function patchBackground(src, kind) {
           sendResponse({ ok: true, state: "needs_pin" });
           break;`,
     );
+    // the real handler is a braced case, so match through its closing brace
     src = src.replace(
-      /case "verifyPin":[\s\S]*?break;/,
-      `case "verifyPin":
+      /case "verifyPin": \{[\s\S]*?\n        \}/,
+      `case "verifyPin": {
           await new Promise((r) => setTimeout(r, 100));
           if (msg.pin === "123456") { globalThis.__unlocked = true; sendResponse({ ok: true, state: "unlocked" }); }
-          else { sendResponse({ ok: false, error: "Incorrect PIN", state: "needs_pin" }); }
-          break;`,
+          // a wrong code burns the challenge, so the mock reports the fresh one too
+          else { sendResponse({ ok: false, error: "Incorrect code", newCode: true, state: "needs_pin" }); }
+          break;
+        }`,
     );
   }
   return src;

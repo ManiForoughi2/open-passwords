@@ -1,6 +1,6 @@
 // fills credentials into the page on request from popup. never treats OTP inputs
 // as fillable login fields - that misclassification is apple's balloon-on-every-OTP bug
-console.log("[Open Passwords] content script v0.45.0 loaded");
+console.log("[Open Passwords] content script v0.46.0 loaded");
 
 const OTP_AUTOCOMPLETE = /one-time-code/i;
 const OTP_HINT = /\b(otp|one[\s-]?time|verification|2fa|mfa|sms[\s-]?code|auth[\s-]?code|security[\s-]?code|passcode)\b/i;
@@ -487,8 +487,29 @@ async function buildLockedSuggestion(field, onUnlock) {
     status.textContent = text;
   };
 
-  // trigger a challenge so the mac shows a code. verifyPin also ensures one exists, no race
-  chrome.runtime.sendMessage({ type: "requestChallenge" }).catch(() => {});
+  // a "get a new code" escape hatch, for a prompt that was dismissed or went stale
+  const again = document.createElement("div");
+  again.textContent = "Get a new code";
+  Object.assign(again.style, {
+    padding: "0 12px 10px",
+    fontSize: "12px",
+    opacity: "0.7",
+    cursor: "pointer",
+    textDecoration: "underline",
+  });
+  again.addEventListener("mousedown", (e) => e.stopPropagation());
+  again.addEventListener("click", async () => {
+    setStatus("Asking your Mac for a new code...", false);
+    input.value = "";
+    await chrome.runtime.sendMessage({ type: "requestChallenge" }).catch(() => {});
+    setStatus("Enter the new code on your Mac", false);
+    input.focus();
+  });
+  box.appendChild(again);
+
+  // only ask for a code if there isnt one up already - a second prompt would invalidate
+  // the code the user is reading, which is exactly how you get "incorrect" forever
+  chrome.runtime.sendMessage({ type: "requestChallenge", ifNeeded: true }).catch(() => {});
 
   let verifying = false;
   const doVerify = async () => {
@@ -528,8 +549,10 @@ async function buildLockedSuggestion(field, onUnlock) {
         removeSuggestion();
       }
     } else {
-      // wrong PIN: clear and retry. background re-issues a fresh challenge on next verify
-      setStatus(res?.error || "Incorrect code, try again", true);
+      // the attempt burned that challenge, so the background already put a NEW code on the
+      // Mac. say so - retyping the code still on screen from the old prompt never works
+      const base = res?.error || "Verification failed";
+      setStatus(res?.newCode ? `${base} - enter the new code on your Mac` : base, true);
       input.value = "";
       input.focus();
     }

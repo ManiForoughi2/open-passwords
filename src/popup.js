@@ -233,7 +233,9 @@ document.getElementById("verify").addEventListener("click", async () => {
   const res = await send({ type: "verifyPin", pin });
   if (res?.ok) render(res.state);
   else {
-    pinError.textContent = res?.error ?? "Verification failed.";
+    // a failed attempt spends the code, so the background put a fresh one on the Mac
+    const base = res?.error ?? "Verification failed.";
+    pinError.textContent = res?.newCode ? `${base} - enter the new code on your Mac` : base;
     pinError.hidden = false;
     pinInput.value = "";
     pinInput.focus();
@@ -300,8 +302,9 @@ chrome.runtime.onMessage.addListener((msg) => {
   const res = await send({ type: "getState" });
   let state = res?.state ?? "disconnected";
   if (state === "needs_pin") {
-    // trigger the macOS access prompt right away
-    const ch = await send({ type: "requestChallenge" });
+    // trigger the macOS access prompt, but never on top of a code thats already showing
+    // (the inline box may have just asked for one) - a second prompt kills the first code
+    const ch = await send({ type: "requestChallenge", ifNeeded: true });
     state = ch?.state ?? state;
   }
   render(state);

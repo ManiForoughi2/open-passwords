@@ -61,6 +61,16 @@ export class SRPSession {
     return powmod(GROUP_GENERATOR, this.clientPrivateKey, GROUP_PRIME); // A
   }
 
+  // A and B keep the helper's own minimal big-endian encoding here (what we put on the
+  // wire). only u pads them, per RFC 5054 PAD() - matching the reference client
+  get clientPublicKeyBytes() {
+    return bigIntToBytes(this.clientPublicKey);
+  }
+
+  get serverPublicKeyBytes() {
+    return bigIntToBytes(this.serverPublicKey);
+  }
+
   serialize(bytes, prefix = true) {
     if (this.shouldUseBase64) return bytesToBase64(bytes);
     return (prefix ? "0x" : "") + bytesToHex(bytes);
@@ -71,21 +81,24 @@ export class SRPSession {
     return hexToBytes(str.replace(/^0x/, ""));
   }
 
-  setServerPublicKey(serverPublicKey, salt) {
+  // salt stays the exact bytes the helper sent. round-tripping it through a bigint drops
+  // any leading zero byte, which silently changes x and M and looks like a wrong PIN
+  setServerPublicKey(serverPublicKey, saltBytes) {
     // RFC 5054: abort if B % N == 0, keep B strictly in (0, N)
     if (serverPublicKey <= 0n || serverPublicKey >= GROUP_PRIME)
       throw new Error("invalid server public key: out of range");
     if (mod(serverPublicKey, GROUP_PRIME) === 0n) throw new Error("invalid server public key");
+    if (!(saltBytes instanceof Uint8Array) || saltBytes.length === 0) throw new Error("invalid salt");
     this.serverPublicKey = serverPublicKey;
-    this.salt = salt;
+    this.salt = saltBytes;
   }
 
   async setSharedKey(pin) {
     if (this.serverPublicKey === undefined) throw new Error("missing server public key");
     if (this.salt === undefined) throw new Error("missing salt");
 
-    const A = bigIntToBytes(this.clientPublicKey);
-    const B = bigIntToBytes(this.serverPublicKey);
+    const A = this.clientPublicKeyBytes;
+    const B = this.serverPublicKeyBytes;
 
     // u = H(PAD(A) | PAD(B)); RFC 5054 requires u != 0 or the password is bypassed
     const u = bytesToBigInt(await sha256(padBytes(A, GROUP_PRIME_BYTES), padBytes(B, GROUP_PRIME_BYTES)));
@@ -96,7 +109,7 @@ export class SRPSession {
     );
     // x = H(salt | H(I ":" P))
     const innerHash = await sha256(utf8ToBytes(this.username + ":" + pin));
-    const x = bytesToBigInt(await sha256(bigIntToBytes(this.salt), innerHash));
+    const x = bytesToBigInt(await sha256(this.salt, innerHash));
 
     // S = (B - k * g^x) ^ (a + u * x) % N
     const base = mod(this.serverPublicKey - mod(k * powmod(GROUP_GENERATOR, x, GROUP_PRIME), GROUP_PRIME), GROUP_PRIME);
@@ -118,16 +131,16 @@ export class SRPSession {
     return await sha256(
       xored,
       hI,
-      bigIntToBytes(this.salt),
-      bigIntToBytes(this.clientPublicKey),
-      bigIntToBytes(this.serverPublicKey),
-      bigIntToBytes(this.sharedKey),
+      this.salt,
+      this.clientPublicKeyBytes,
+      this.serverPublicKeyBytes,
+      padBytes(bigIntToBytes(this.sharedKey), 32),
     );
   }
 
   // HAMK = H( A | M | K )
   async computeHMAC(m) {
-    return await sha256(bigIntToBytes(this.clientPublicKey), m, bigIntToBytes(this.sharedKey));
+    return await sha256(this.clientPublicKeyBytes, m, padBytes(bigIntToBytes(this.sharedKey), 32));
   }
 
   async getEncryptionKey() {

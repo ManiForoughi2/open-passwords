@@ -346,7 +346,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         case "getState":
           await ensureConnected();
-          sendResponse({ ok: true, state: client.state });
+          sendResponse({ ok: true, state: client.state, hasChallenge: client.hasChallenge });
           break;
 
         case "connect":
@@ -358,18 +358,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // top frame (or popup) only, so a hostile sub-frame cant spam native prompts
           if (fromContent && sender.frameId !== 0) return sendResponse({ ok: false, error: "forbidden" });
           await ensureConnected();
-          await withTimeout(client.requestChallenge(), 8000, "challenge timed out");
-          sendResponse({ ok: true, state: client.state });
+          // ifNeeded: leave a code thats already up on the Mac alone. re-asking would show a
+          // second prompt and kill the code the user is in the middle of typing
+          await withTimeout(client.requestChallenge({ ifNeeded: !!msg.ifNeeded }), 8000, "challenge timed out");
+          sendResponse({ ok: true, state: client.state, hasChallenge: client.hasChallenge });
           break;
 
-        case "verifyPin":
+        case "verifyPin": {
           if (fromContent && sender.frameId !== 0) return sendResponse({ ok: false, error: "forbidden" });
-          // cap so a non-responding helper cant leave the inline PIN box stuck
-          await withTimeout(client.verifyPin(msg.pin), 8000, "verification timed out");
+          await ensureConnected();
+          try {
+            // cap so a non-responding helper cant leave the inline PIN box stuck
+            await withTimeout(client.verifyPin(msg.pin), 8000, "verification timed out");
+          } catch (e) {
+            // a spent challenge cant be retried - put a fresh code on the Mac and tell the UI
+            // to ask for THAT one, or the user retypes a dead code forever
+            let newCode = e?.code === "challenge_reissued";
+            if (!newCode && !client.hasChallenge && client.state === State.NeedsPin) {
+              try {
+                await withTimeout(client.requestChallenge(), 8000, "challenge timed out");
+                newCode = true;
+              } catch (_) {}
+            }
+            return sendResponse({
+              ok: false,
+              error: String(e?.message ?? e),
+              newCode,
+              state: client.state,
+            });
+          }
           sendResponse({ ok: true, state: client.state });
           // just unlocked - complete any saves stashed while locked
           if (client.ready) flushPendingSaves();
           break;
+        }
 
         case "getLogins": {
           // real active tab's URL, never caller-supplied
