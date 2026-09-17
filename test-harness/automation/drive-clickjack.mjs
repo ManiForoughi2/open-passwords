@@ -9,7 +9,7 @@ await page.goto("http://127.0.0.1:8799/clickjack.html",{waitUntil:"domcontentloa
 const box=()=>page.locator('[data-open-passwords="suggestions"]');
 await page.focus('input[name=username]'); await page.waitForTimeout(400);
 const offered = await box().count()>0;
-if(offered){ await box().locator("text=Click to autofill").click(); await page.waitForTimeout(600); }
+if(offered){ await box().locator("text=test@example.com").click(); await page.waitForTimeout(600); }
 const pval=await page.inputValue('input[name=password]').catch(()=>"");
 // pass if hidden password not filled - visibility guard blocks exfil
 const pass = pval==="";

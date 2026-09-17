@@ -184,7 +184,11 @@ async function render(state) {
   }
   if (state === "unlocked") {
     await renderLogins();
-    return show("unlocked");
+    show("unlocked");
+    // codes and app links fill in after the logins are up, they arent worth delaying it for
+    renderCodes();
+    renderAppLinks();
+    return;
   }
   // unknown state must never leave every view hidden (blank popup)
   show("connecting");
@@ -225,6 +229,96 @@ async function renderLogins() {
     list.appendChild(li);
   }
 }
+
+// verification codes for this site, under the logins. Fill puts the code into the page's
+// code field; if the page has none the code is shown here instead so it can be typed
+async function renderCodes() {
+  const list = document.getElementById("codes");
+  list.innerHTML = "";
+  list.hidden = true;
+  const res = await send({ type: "getOneTimeCodes" });
+  if (!res?.ok || !res.rows?.length) return;
+  for (const row of res.rows) {
+    const li = document.createElement("li");
+    const text = document.createElement("span");
+    text.className = "u";
+    const label = document.createElement("span");
+    label.className = "code-label";
+    label.textContent =
+      row.source === "totp"
+        ? row.domain
+          ? `Verification code for ${row.domain}`
+          : "Verification code"
+        : "Code from Messages";
+    text.appendChild(label);
+    if (row.username) {
+      const sub = document.createElement("span");
+      sub.className = "subnote";
+      sub.textContent = row.username;
+      text.appendChild(sub);
+    }
+    const fill = document.createElement("button");
+    fill.textContent = "Fill";
+    fill.addEventListener("click", async () => {
+      fill.disabled = true;
+      const r = await send({ type: "fillOneTimeCode", id: row.id });
+      if (r?.ok && r.filled) return window.close();
+      if (r?.ok && r.code) {
+        // no code field took it: show the value, it rotates so dont let it linger
+        fill.replaceWith(codeBadge(r.code));
+        return;
+      }
+      fill.disabled = false;
+      flashNote(r?.error ? `Couldn't read the code: ${r.error}` : "Couldn't read the code");
+    });
+    li.append(text, fill);
+    list.appendChild(li);
+  }
+  list.hidden = false;
+}
+
+function codeBadge(code) {
+  const b = document.createElement("span");
+  b.className = "code-value";
+  b.textContent = code;
+  b.title = "Current code";
+  return b;
+}
+
+// Passwords-app hand-offs. the search link is always there once unlocked; the other two
+// depend on what this macOS's helper advertises and on what the page shows
+let caps = {};
+let pageTotpUri = null;
+async function renderAppLinks() {
+  document.getElementById("new-login").hidden = !caps.newPasswordSheet;
+  const totpBtn = document.getElementById("setup-totp");
+  totpBtn.hidden = true;
+  pageTotpUri = null;
+  if (!caps.setUpTotp) return;
+  try {
+    const tab = await activeTab();
+    if (!tab?.id) return;
+    const r = await chrome.tabs.sendMessage(tab.id, { type: "findTotpUri" }, { frameId: 0 });
+    const uri = r?.uris?.[0];
+    if (!uri) return;
+    pageTotpUri = uri;
+    totpBtn.hidden = false;
+  } catch (_) {}
+}
+
+document.getElementById("open-app").addEventListener("click", async () => {
+  await send({ type: "openPasswordsApp", mode: "search" });
+  window.close();
+});
+document.getElementById("new-login").addEventListener("click", async () => {
+  await send({ type: "openPasswordsApp", mode: "new" });
+  window.close();
+});
+document.getElementById("setup-totp").addEventListener("click", async () => {
+  if (!pageTotpUri) return;
+  await send({ type: "openPasswordsApp", mode: "totp", uri: pageTotpUri });
+  window.close();
+});
 
 document.getElementById("verify").addEventListener("click", async () => {
   pinError.hidden = true;
@@ -277,6 +371,7 @@ refreshBtn.addEventListener("click", async () => {
     // changed in the Passwords app lands without re-clicking Fill), then re-list
     const r = await send({ type: "refreshAndRefill" });
     await renderLogins();
+    renderCodes();
     if (r?.refilled) flashNote(`Re-filled ${r.username} with the latest password`);
     else flashNote("Passwords refreshed");
   }
@@ -295,11 +390,18 @@ document.getElementById("newcode").addEventListener("click", async () => {
 });
 
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === "state") render(msg.state);
+  if (msg?.type === "state") {
+    // capabilities arrive with the hello, which is what precedes the first state change
+    send({ type: "getState" }).then((r) => {
+      caps = r?.caps || caps;
+      render(msg.state);
+    });
+  }
 });
 
 (async () => {
   const res = await send({ type: "getState" });
+  caps = res?.caps || {};
   let state = res?.state ?? "disconnected";
   if (state === "needs_pin") {
     // trigger the macOS access prompt, but never on top of a code thats already showing

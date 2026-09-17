@@ -1,6 +1,6 @@
 // fills credentials into the page on request from popup. never treats OTP inputs
 // as fillable login fields - that misclassification is apple's balloon-on-every-OTP bug
-console.log("[Open Passwords] content script v0.46.0 loaded");
+console.log("[Open Passwords] content script v0.48.0 loaded");
 
 const OTP_AUTOCOMPLETE = /one-time-code/i;
 const OTP_HINT = /\b(otp|one[\s-]?time|verification|2fa|mfa|sms[\s-]?code|auth[\s-]?code|security[\s-]?code|passcode)\b/i;
@@ -239,8 +239,48 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
+// verification codes: fill, refresh, shortcut and otpauth lookups, all from our own extension only
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (sender.id !== chrome.runtime.id) return false;
+  switch (msg?.type) {
+    case "fillOtp": {
+      if (msg.expectedHost && location.hostname.toLowerCase() !== msg.expectedHost) {
+        sendResponse({ ok: false, filled: false, error: "origin mismatch" });
+        return true;
+      }
+      // the field the user picked from, else the focused code field, else the first visible
+      // one. a frame with no code field stays silent so another frame's answer wins
+      const target = otpTargetField();
+      if (!target) return false;
+      fillOtp(target, msg.code);
+      sendResponse({ ok: true, filled: true });
+      return true;
+    }
+    case "oneTimeCodeAvailable": {
+      // a code just landed on the Mac: refresh an offer thats up on a code field
+      const a = deepActiveElement();
+      if (a instanceof HTMLInputElement && isOtpField(a) && isVisible(a) && frameIsSafe()) {
+        buildOneTimeCodeSuggestion(a);
+      }
+      return false;
+    }
+    case "shortcut": {
+      onShortcut();
+      return false;
+    }
+    case "findTotpUri": {
+      if (window !== window.top) return false;
+      sendResponse({ uris: findTotpUris() });
+      return true;
+    }
+  }
+  return false;
+});
+
 // set when the user clicks an offer
 let fillAnchor = null;
+// the code field the user picked a verification code from
+let otpAnchor = null;
 // last credential we autofilled, to suppress a save-offer for a login just filled from the vault
 let lastAutofill = null;
 // last password we generated, so its submit always offers to save (reset page / password change)
@@ -770,6 +810,218 @@ async function buildOfferSuggestion(field) {
   positionBox(); // final height known now, flip above the field if below the fold
 }
 
+// --- verification codes ------------------------------------------------------------
+// OTP inputs are never login fields (see the top of this file) and that stays true. what
+// they get instead is the verification codes Apple Passwords holds for this site: TOTP
+// generators saved in the app, and a code the helper just picked up from Messages. always
+// an offer behind a click, never filled because a field appeared - a code is a bearer
+// credential and a hostile page can render six boxes as easily as a real one
+let otpFilling = false; // our own fill is moving focus through a split widget
+
+// the row of single-character inputs this field belongs to, or null if it stands alone
+function otpBoxGroup(el) {
+  const scope = el.form || el.closest("div, section, fieldset") || document;
+  const inputs = Array.from(scope.querySelectorAll("input")).filter(
+    (i) => isVisible(i) && !i.disabled && !i.readOnly
+  );
+  // maxlength=1 is the usual marker for a split widget, but plenty of sites (spotify) set
+  // no maxlength at all and clamp to one character in JS - there, a shared one-time-code
+  // autocomplete across several inputs is what identifies the row
+  const sized = inputs.filter((i) => parseInt(i.getAttribute("maxlength") || "0", 10) === 1);
+  if (sized.includes(el) && sized.length >= 4) return sized;
+  const tagged = inputs.filter((i) => OTP_AUTOCOMPLETE.test(i.getAttribute("autocomplete") || ""));
+  if (tagged.includes(el) && tagged.length >= 4) return tagged;
+  return null;
+}
+
+// one character per box for a split widget, otherwise the whole code in one field
+function fillOtp(field, code) {
+  const chars = code.replace(/[^A-Za-z0-9]/g, "").split("");
+  const boxes = otpBoxGroup(field);
+  otpFilling = true;
+  try {
+    if (!boxes) {
+      field.focus();
+      setValue(field, chars.join(""));
+      return;
+    }
+    const start = Math.max(0, boxes.indexOf(field));
+    chars.forEach((c, i) => {
+      const box = boxes[start + i];
+      if (!box) return;
+      box.focus();
+      setValue(box, c);
+      // some widgets advance focus on keyup rather than on input
+      box.dispatchEvent(new KeyboardEvent("keydown", { key: c, bubbles: true }));
+      box.dispatchEvent(new KeyboardEvent("keyup", { key: c, bubbles: true }));
+    });
+    boxes[Math.min(start + chars.length - 1, boxes.length - 1)]?.focus();
+  } finally {
+    // release after the focus events settle, not mid-loop
+    setTimeout(() => { otpFilling = false; }, 0);
+  }
+}
+
+// where a verification code goes: the field the user picked from (re-resolved if react
+// swapped it), else the focused code field, else the first visible code field in this frame
+function otpTargetField() {
+  const anchored = liveField(otpAnchor);
+  if (anchored instanceof HTMLInputElement && anchored.isConnected && isOtpField(anchored)) return anchored;
+  const a = deepActiveElement();
+  if (a instanceof HTMLInputElement && isOtpField(a) && isVisible(a)) return a;
+  return Array.from(document.querySelectorAll("input")).find((i) => isOtpField(i) && isVisible(i)) || null;
+}
+
+// built by hand rather than dropped in as markup - no innerHTML on a page we do not control
+function codeIcon() {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "17");
+  svg.setAttribute("height", "17");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.6");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  svg.style.opacity = "0.5";
+  svg.style.flex = "none";
+  // a clock face: the code is the thing that rotates
+  const ring = document.createElementNS(NS, "circle");
+  ring.setAttribute("cx", "12");
+  ring.setAttribute("cy", "12");
+  ring.setAttribute("r", "9");
+  const hands = document.createElementNS(NS, "path");
+  hands.setAttribute("d", "M12 7v5l3 2");
+  svg.append(ring, hands);
+  return svg;
+}
+
+// one row per code the vault can offer here. label leads with what the code is for, the
+// second line says which account (a site with two accounts has two generators)
+function appendOneTimeCodeRows(box, field, rows) {
+  for (const r of rows) {
+    const row = document.createElement("div");
+    Object.assign(row.style, {
+      padding: "8px 12px",
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      gap: "9px",
+    });
+    row.appendChild(codeIcon());
+    const text = document.createElement("div");
+    Object.assign(text.style, { minWidth: "0" });
+    const label = document.createElement("div");
+    label.textContent =
+      r.source === "totp"
+        ? r.domain
+          ? `Verification code for ${r.domain}`
+          : "Verification code"
+        : "Code from Messages";
+    Object.assign(label.style, { fontWeight: "600", fontSize: "13px" });
+    text.appendChild(label);
+    if (r.username) {
+      const sub = document.createElement("div");
+      sub.textContent = r.username;
+      Object.assign(sub.style, {
+        fontSize: "12px",
+        opacity: "0.65",
+        marginTop: "1px",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+      });
+      text.appendChild(sub);
+    }
+    row.appendChild(text);
+    registerRow(row, () => {
+      removeSuggestion();
+      otpAnchor = field;
+      // the background reads the current value (Touch ID if the vault asks) and pushes it
+      // back to this frame as a fillOtp message
+      chrome.runtime.sendMessage({ type: "inlineFillOneTimeCode", id: r.id }).catch(() => {});
+    });
+    box.appendChild(row);
+  }
+}
+
+async function buildOneTimeCodeSuggestion(field) {
+  if (otpFilling) return; // our own fill is moving focus through the boxes
+  const seq = ++offerSeq;
+  let res;
+  try {
+    res = await chrome.runtime.sendMessage({ type: "inlineOneTimeCodes" });
+  } catch {
+    return;
+  }
+  if (seq !== offerSeq) return;
+  // the lookup takes a moment, and a split widget moves focus between its own boxes in that
+  // window (React can swap the node outright). accept any box in the same group, not just
+  // the element we started on - but still bail if the user has left the widget
+  const active = deepActiveElement();
+  const group = otpBoxGroup(field);
+  if (!field.isConnected || !(active === field || (group && group.includes(active)))) return;
+  if (active !== field && active instanceof HTMLInputElement) field = active;
+  if (!res?.ok) return;
+  const locked = !!res.locked;
+  const rows = res.rows || [];
+  // nothing to show -> show nothing, same as the login path. a locked vault is worth a row
+  // only if the helper can offer codes at all (an older macOS cant)
+  if (!locked && !rows.length) return;
+  if (locked && res.supported === false) return;
+
+  const box = buildSuggestionBox(field);
+  if (locked) {
+    const row = document.createElement("div");
+    row.textContent = "Unlock to fill verification codes…";
+    Object.assign(row.style, { padding: "8px 10px", cursor: "pointer" });
+    registerRow(row, () => buildLockedSuggestion(field, () => buildOneTimeCodeSuggestion(field)));
+    box.appendChild(row);
+    positionBox();
+    return;
+  }
+  appendOneTimeCodeRows(box, field, rows);
+  positionBox();
+}
+
+// otpauth:// URIs the page shows (the "can't scan the QR? use this key" link or text most
+// 2FA setup pages print). the popup offers to hand one to the Passwords app. no image or QR
+// scanning here, on purpose
+function findTotpUris() {
+  const found = [];
+  const add = (s) => {
+    s = (s || "").trim();
+    if (/^(apple-)?otpauth:\/\/[^\s"'<>]+$/i.test(s) && !found.includes(s) && found.length < 3) found.push(s);
+  };
+  for (const a of document.querySelectorAll('a[href^="otpauth://"], a[href^="apple-otpauth://"]')) add(a.getAttribute("href"));
+  for (const i of document.querySelectorAll("input, textarea")) if (/^(apple-)?otpauth:/i.test(i.value || "")) add(i.value);
+  const re = /(?:apple-)?otpauth:\/\/[^\s"'<>]+/gi;
+  const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+  let n;
+  let budget = 5000; // text nodes, keeps a huge page cheap
+  while ((n = walker.nextNode()) && budget-- > 0) {
+    const t = n.nodeValue;
+    if (!t || t.length < 12 || !/otpauth:/i.test(t)) continue;
+    for (const m of t.match(re) || []) add(m);
+  }
+  return found;
+}
+
+// toolbar shortcut: reopen the offer on the focused login/code field, else put focus on the
+// login field so its own focusin builds the offer. top frame only for the focus fallback
+function onShortcut() {
+  const a = deepActiveElement();
+  if (a instanceof HTMLInputElement && isVisible(a) && frameIsSafe()) {
+    if (isOtpField(a)) return void buildOneTimeCodeSuggestion(a);
+    if (isLoginField(a)) return void buildOfferSuggestion(a);
+  }
+  if (window !== window.top) return;
+  const target = Array.from(document.querySelectorAll("input")).find((i) => isVisible(i) && isLoginField(i));
+  if (target) target.focus();
+}
+
 // post-unlock chooser reuses the same row list
 function buildChooser(field, logins) {
   if (!logins.length) {
@@ -824,6 +1076,12 @@ async function onFocusIn(e) {
   const field = (e.composedPath ? e.composedPath()[0] : null) || e.target;
   // remember password fields before any show-password toggle flips them to text
   if (field instanceof HTMLInputElement && field.type === "password") everPassword.add(field);
+  // an OTP field is still not a login field - it gets its own offer instead: the
+  // verification codes the vault holds for this site
+  if (field instanceof HTMLInputElement && isOtpField(field) && isVisible(field)) {
+    if (frameIsSafe()) buildOneTimeCodeSuggestion(field);
+    return;
+  }
   if (!(field instanceof HTMLInputElement) || !isLoginField(field)) {
     return;
   }

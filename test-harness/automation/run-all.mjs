@@ -24,6 +24,7 @@ const DRIVERS = [
   ["PIN flow (wrong code errors, right code unlocks)", "drive-pin.mjs"],
   ["Iframe login (same-origin frame shows dropdown)", "drive-iframe.mjs"],
   ["Cross-origin iframe shows NO offer (leak closed)", "drive-xorigin.mjs"],
+  ["Verification codes (TOTP rows, split-box fill, shortcut, otpauth finder)", "drive-otp.mjs"],
 ];
 
 if (!existsSync(join(HERE, ".builds", "unlocked"))) {

@@ -6,9 +6,67 @@ const client = new ApplePasswords();
 
 client.onStateChange((s) => {
   // any state other than unlocked means the session/keys are gone - drop the plaintext cache
-  if (s !== State.Unlocked) pwCacheClear();
+  if (s !== State.Unlocked) {
+    pwCacheClear();
+    otpByTab.clear();
+  }
   broadcast({ type: "state", state: s });
 });
+
+// a code just arrived on the Mac (Messages). tell the active tab so an open dropdown on a
+// code field refreshes and shows it, the way safari surfaces an SMS code as it lands
+client.onOneTimeCodeAvailable(async () => {
+  try {
+    const tab = await activeTab();
+    if (tab?.id == null) return;
+    otpByTab.delete(tab.id);
+    chrome.tabs.sendMessage(tab.id, { type: "oneTimeCodeAvailable" }).catch(() => {});
+  } catch (_) {}
+});
+
+// one-time-code rows offered per tab, so a click can be resolved back to the entry it named
+// without the page ever choosing the username/domain. cleared on lock and on each re-list
+const otpByTab = new Map(); // tabId -> { at, entries }
+const OTP_LIST_TTL_MS = 120_000;
+
+// the URLs the helper matches verification codes against: this frame, then the top page.
+// apple walks the whole parent chain via webNavigation; the top URL covers the common case
+// (a code field inside a same-site iframe) without another permission
+function frameUrlsFor(sender) {
+  const urls = [];
+  for (const u of [sender.url, sender.tab?.url]) {
+    if (u && /^https?:/i.test(u) && !urls.includes(u)) urls.push(u);
+  }
+  return urls;
+}
+
+// public shape of a code entry: never the code itself at list time
+function otpRow(e, i) {
+  return { id: i, source: e.source, username: e.username, domain: e.domain };
+}
+
+async function listOneTimeCodes(tabId, frameId, frameUrls) {
+  const { entries, requiresAuth } = await client.getOneTimeCodes(tabId, frameId, frameUrls);
+  otpByTab.set(tabId, { at: Date.now(), entries, frameId, frameUrls });
+  return { rows: entries.map(otpRow), requiresAuth };
+}
+
+// resolve a row the user picked to the value to fill. TOTP: re-read now (the value rotates
+// every 30s and this read is what triggers Touch ID when the vault demands it). anything
+// delivered (Messages) is filled from the listed value
+async function resolveOneTimeCode(tabId, id) {
+  const cached = otpByTab.get(tabId);
+  if (!cached || Date.now() - cached.at > OTP_LIST_TTL_MS) throw new Error("code list expired, focus the field again");
+  const entry = cached.entries[id];
+  if (!entry) throw new Error("unknown code");
+  if (entry.source !== "totp") return entry.code;
+  const fresh = await client.readOneTimeCode(tabId, cached.frameId, cached.frameUrls, entry.username);
+  const match =
+    fresh.find((e) => e.source === "totp" && e.username === entry.username && e.domain === entry.domain) ||
+    fresh.find((e) => e.source === "totp");
+  if (!match?.code) throw new Error("no code returned");
+  return match.code;
+}
 
 function broadcast(msg) {
   chrome.runtime.sendMessage(msg).catch(() => {});
@@ -210,7 +268,24 @@ function isLocalDevHost(host) {
 }
 
 // messages a content script may send - only the sender's own tab/origin, never return a password to the page
-const CONTENT_ALLOWED = new Set(["inlineLogins", "inlineFill", "requestChallenge", "verifyPin", "resolveSave"]);
+const CONTENT_ALLOWED = new Set([
+  "inlineLogins",
+  "inlineFill",
+  "inlineOneTimeCodes",
+  "inlineFillOneTimeCode",
+  "requestChallenge",
+  "verifyPin",
+  "resolveSave",
+]);
+
+// the toolbar shortcut (chrome://extensions/shortcuts to rebind): the page decides what to do
+// with it - reopen the dropdown on the focused login/code field, or focus the login field
+chrome.commands?.onCommand.addListener(async (command) => {
+  if (command !== "fill-login") return;
+  const tab = await activeTab();
+  if (tab?.id == null) return;
+  chrome.tabs.sendMessage(tab.id, { type: "shortcut" }).catch(() => {});
+});
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
@@ -240,6 +315,43 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           } catch {
             sendResponse({ ok: true, locked: false, logins: [] });
           }
+          break;
+        }
+
+        case "inlineOneTimeCodes": {
+          // verification codes for the asking frame. names only; the value is read on click
+          const frameUrl = sender.url;
+          if (!frameUrl || sender.tab?.id == null) return sendResponse({ ok: false, error: "no frame" });
+          await ensureConnected();
+          // capabilities arrive with the hello, before the PIN, so "locked" still knows
+          // whether this helper can offer codes at all (no helper / older macOS: it cant)
+          if (!client.ready) return sendResponse({ ok: true, locked: true, supported: client.canFillOneTimeCodes, rows: [] });
+          if (!client.canFillOneTimeCodes) return sendResponse({ ok: true, locked: false, supported: false, rows: [] });
+          try {
+            const { rows, requiresAuth } = await listOneTimeCodes(sender.tab.id, sender.frameId ?? 0, frameUrlsFor(sender));
+            sendResponse({ ok: true, locked: false, supported: true, rows, requiresAuth });
+          } catch (e) {
+            sendResponse({ ok: true, locked: false, supported: true, rows: [], error: String(e?.message ?? e) });
+          }
+          break;
+        }
+
+        case "inlineFillOneTimeCode": {
+          // the frame that listed the codes is the only one that gets one back, by frameId
+          const frameUrl = sender.url;
+          const frameId = sender.frameId;
+          if (!frameUrl || sender.tab?.id == null || frameId == null) return sendResponse({ ok: false, error: "no frame" });
+          const host = registrableHost(frameUrl);
+          if (!/^https:\/\//i.test(frameUrl) && !isLocalDevHost(host)) {
+            return sendResponse({ ok: false, error: "refusing to fill on a non-HTTPS frame" });
+          }
+          const code = await resolveOneTimeCode(sender.tab.id, Number(msg.id));
+          const resp = await chrome.tabs.sendMessage(
+            sender.tab.id,
+            { type: "fillOtp", code, expectedHost: host },
+            { frameId },
+          );
+          sendResponse({ ok: true, filled: !!resp?.filled });
           break;
         }
 
@@ -346,8 +458,71 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         case "getState":
           await ensureConnected();
-          sendResponse({ ok: true, state: client.state, hasChallenge: client.hasChallenge });
+          sendResponse({
+            ok: true,
+            state: client.state,
+            hasChallenge: client.hasChallenge,
+            caps: {
+              oneTimeCodes: client.canFillOneTimeCodes,
+              newPasswordSheet: client.canOpenPasswordsAppToNewPasswordSheet,
+              setUpTotp: client.canSetUpTotp,
+            },
+          });
           break;
+
+        case "getOneTimeCodes": {
+          // popup: verification codes for the active tab's top page
+          const tab = await activeTab();
+          if (!tab?.url) return sendResponse({ ok: false, error: "no active tab" });
+          if (!client.ready) return sendResponse({ ok: true, rows: [] });
+          if (!client.canFillOneTimeCodes) return sendResponse({ ok: true, supported: false, rows: [] });
+          const { rows, requiresAuth } = await listOneTimeCodes(tab.id, 0, frameUrlsFor({ url: tab.url, tab }));
+          sendResponse({ ok: true, supported: true, rows, requiresAuth });
+          break;
+        }
+
+        case "fillOneTimeCode": {
+          // popup: fill the picked code into whichever frame holds the code field. every frame
+          // gets the message; only the one with a code field acts on it. the value comes back
+          // too so the popup can show it when no field on the page took it
+          const tab = await activeTab();
+          if (!tab?.url) return sendResponse({ ok: false, error: "no active tab" });
+          const host = registrableHost(tab.url);
+          if (!/^https:\/\//i.test(tab.url) && !isLocalDevHost(host)) {
+            return sendResponse({ ok: false, error: "refusing to fill on a non-HTTPS page" });
+          }
+          const code = await resolveOneTimeCode(tab.id, Number(msg.id));
+          let filled = false;
+          try {
+            const frames = await new Promise((resolve) =>
+              chrome.tabs.sendMessage(tab.id, { type: "fillOtp", code, expectedHost: host }, (r) => {
+                void chrome.runtime.lastError;
+                resolve(r);
+              }),
+            );
+            filled = !!frames?.filled;
+          } catch (_) {}
+          sendResponse({ ok: true, filled, code });
+          break;
+        }
+
+        case "openPasswordsApp": {
+          // popup: jump into the Passwords app for this site (search), its new-login sheet, or
+          // set up a verification code from an otpauth URI the page shows
+          const tab = await activeTab();
+          const url = tab?.url && /^https?:/i.test(tab.url) ? tab.url : undefined;
+          await ensureConnected();
+          if (msg.mode === "totp") {
+            if (!msg.uri || !/^(apple-)?otpauth:\/\//i.test(msg.uri)) return sendResponse({ ok: false, error: "no otpauth URI" });
+            client.launchPasswordsApp({ totpUri: msg.uri, totpPageUrl: url });
+          } else if (msg.mode === "new") {
+            client.launchPasswordsApp({ newPasswordUrl: url });
+          } else {
+            client.launchPasswordsApp({ searchUrl: url });
+          }
+          sendResponse({ ok: true });
+          break;
+        }
 
         case "connect":
           await ensureConnected();

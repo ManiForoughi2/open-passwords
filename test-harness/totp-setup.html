@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acme Cloud - Set up two-factor</title>
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f3f4f6; color: #1f2937; }
+    .scenario-banner { background: #eff6ff; border-bottom: 1px solid #bfdbfe; padding: 10px 16px; font-size: 13px; color: #1e3a8a; }
+    .wrap { max-width: 520px; margin: 48px auto; padding: 0 16px; }
+    .card { background: #fff; border: 1px solid #d1d5db; border-radius: 12px; padding: 32px; }
+    code { display: block; word-break: break-all; background: #f9fafb; padding: 10px; border-radius: 8px; font-size: 12px; margin: 8px 0; }
+    .qr { width: 160px; height: 160px; background: repeating-linear-gradient(90deg, #111 0 8px, #fff 8px 16px); margin: 12px 0; }
+  </style>
+</head>
+<body>
+  <div class="scenario-banner">
+    <b>Scenario: 2FA setup page.</b> A QR code plus the "can't scan?" fallbacks most sites print: an
+    <code style="display:inline;padding:0 4px">otpauth://</code> link and the same URI as text. The popup should offer
+    "Set up verification code in Passwords" from the link (no QR scanning).
+  </div>
+  <div class="wrap">
+    <div class="card">
+      <h1>Set up an authenticator app</h1>
+      <p>Scan this QR code with your authenticator app.</p>
+      <div class="qr" role="img" aria-label="QR code (mock)"></div>
+      <p>Can't scan? <a href="otpauth://totp/Acme:alice%40example.com?secret=JBSWY3DPEHPK3PXP&amp;issuer=Acme">Open in your authenticator</a>
+        or enter this setup key manually:</p>
+      <code>otpauth://totp/Acme:alice%40example.com?secret=JBSWY3DPEHPK3PXP&amp;issuer=Acme</code>
+      <p>Second account on this page (text only):</p>
+      <code>otpauth://totp/Other:bob%40work.com?secret=GEZDGNBVGY3TQOJQ&amp;issuer=Other</code>
+      <a href="index.html">&larr; Back to test harness</a>
+    </div>
+  </div>
+</body>
+</html>

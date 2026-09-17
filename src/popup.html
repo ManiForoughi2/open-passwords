@@ -44,7 +44,15 @@
         <p id="site" class="site"></p>
         <ul id="logins" class="logins"></ul>
         <p id="nologins" class="msg" hidden>No saved passwords for this site.</p>
+        <!-- verification codes the vault holds for this site (TOTP generators, Messages) -->
+        <ul id="codes" class="logins codes" hidden></ul>
         <p id="refresh-note" class="note" hidden></p>
+        <!-- hand-offs to the Passwords app: the place for notes, editing, and new logins -->
+        <div id="app-links" class="app-links">
+          <button id="open-app" class="link">Open in Passwords app</button>
+          <button id="new-login" class="link" hidden>New login in Passwords app…</button>
+          <button id="setup-totp" class="link" hidden>Set up verification code in Passwords…</button>
+        </div>
       </section>
     </main>
 

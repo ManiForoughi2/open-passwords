@@ -31,16 +31,33 @@ function challengeError(message) {
   return e;
 }
 
+// numbering matches the helper's own ExtensionCommand enum (and apple's extension)
 export const Command = {
   END: 0,
   HANDSHAKE: 2,
+  SET_ICON_AND_TITLE: 3,
   GET_LOGIN_NAMES_FOR_URL: 4,
   GET_PASSWORD_FOR_LOGIN_NAME: 5,
   SET_PASSWORD_FOR_LOGIN_NAME_URL: 6, // save or update a login
+  NEW_ACCOUNT_FOR_URL: 7,
   TAB_EVENT: 8,
   PASSWORDS_DISABLED: 9,
   RELOGIN_NEEDED: 10,
+  LAUNCH_PASSWORDS_APP: 13, // also carries "new password sheet" and "set up TOTP" variants
   GET_CAPABILITIES: 14,
+  ONE_TIME_CODE_AVAILABLE: 15, // helper -> us, unsolicited: a code just arrived (Messages)
+  GET_ONE_TIME_CODES: 16, // verification codes the vault holds for these frame URLs
+  DID_FILL_ONE_TIME_CODE: 17, // read the current TOTP value right before filling it
+  SET_UP_TOTP_GENERATOR: 18, // status reply to the set-up-TOTP variant of cmd 13
+  OPEN_URL_IN_SAFARI: 1984,
+};
+
+// the QID string the helper expects alongside each encrypted query
+const QueryId = {
+  [4]: "CmdGetLoginNames4URL",
+  [5]: "CmdGetPassword4LoginName",
+  [16]: "CmdGetOneTimeCodes",
+  [17]: "CmdDidFillOneTimeCode",
 };
 
 const Action = { UPDATE: 1, SEARCH: 2, ADD_NEW: 3, MAYBE_ADD: 4, GHOST_SEARCH: 5 };
@@ -56,6 +73,20 @@ function jsonToBase64(obj) {
   return bytesToBase64(new TextEncoder().encode(JSON.stringify(obj)));
 }
 
+// one-time-code entries as apple's extension reads them: source "totp" (a generator saved in
+// Passwords - code is the value at list time, username/domain identify the generator) or a
+// delivered code (Messages), where the code is the only thing there is
+function normalizeOtpEntries(entries) {
+  return (Array.isArray(entries) ? entries : [])
+    .map((e) => ({
+      source: String(e.source || ""),
+      username: e.username || "",
+      domain: e.domain || "",
+      code: e.code != null ? String(e.code) : "",
+    }))
+    .filter((e) => e.code || e.source === "totp");
+}
+
 export class ApplePasswords {
   constructor() {
     this.port = undefined;
@@ -64,6 +95,7 @@ export class ApplePasswords {
     this.state = State.Disconnected;
     this._waiters = new Map(); // cmd -> {resolve, reject, timer}
     this._onState = () => {};
+    this._onOneTimeCode = () => {};
     this._challengeAt = 0; // when the current code went up on the Mac
     this._challengeGen = 0; // bumped per challenge, so a queued verify can spot a stale one
     this._challengePending = undefined; // in-flight requestChallenge, shared by callers
@@ -84,6 +116,27 @@ export class ApplePasswords {
 
   onStateChange(fn) {
     this._onState = fn;
+  }
+
+  // the helper pushes this when a one-time code shows up (an SMS landing in Messages, like
+  // safari's code autofill). callers re-query GET_ONE_TIME_CODES for the active tab
+  onOneTimeCodeAvailable(fn) {
+    this._onOneTimeCode = fn;
+  }
+
+  // capability flags from the hello reply. all default false so an older helper (or a
+  // missing flag) simply hides the feature instead of sending a command it cant handle
+  get canFillOneTimeCodes() {
+    return this.capabilities?.canFillOneTimeCodes === true;
+  }
+  get canOpenPasswordsAppToNewPasswordSheet() {
+    return this.capabilities?.canOpenPasswordsAppToNewPasswordSheet === true;
+  }
+  get canSetUpTotp() {
+    return this.capabilities?.scanForOTPURI === true;
+  }
+  get canSaveAccountWithEmptyUserName() {
+    return this.capabilities?.canSaveAccountWithEmptyUserName === true;
   }
 
   _setState(s) {
@@ -140,6 +193,11 @@ export class ApplePasswords {
     if (message.cmd === Command.PASSWORDS_DISABLED || message.cmd === Command.RELOGIN_NEEDED) {
       this.session = undefined;
       this._setState(State.NeedsPin);
+    }
+    if (message.cmd === Command.ONE_TIME_CODE_AVAILABLE && !w) {
+      try {
+        this._onOneTimeCode();
+      } catch (_) {}
     }
   }
 
@@ -305,18 +363,16 @@ export class ApplePasswords {
     });
   }
 
-  async _encryptedQuery(cmd, tabId, hostname, payloadBody, timeoutMs) {
+  async _encryptedQuery(cmd, tabId, hostname, payloadBody, timeoutMs, frameId = 0) {
     const sdata = this.session.serialize(await this.session.encrypt(payloadBody));
-    const reply = await this._send(
-      cmd,
-      {
-        tabId,
-        frameId: 0,
-        url: hostname,
-        payload: { QID: cmd === Command.GET_LOGIN_NAMES_FOR_URL ? "CmdGetLoginNames4URL" : "CmdGetPassword4LoginName", SMSG: JSON.stringify({ TID: this.session.username, SDATA: sdata }) },
-      },
-      timeoutMs,
-    );
+    const body = {
+      tabId,
+      frameId,
+      payload: { QID: QueryId[cmd], SMSG: JSON.stringify({ TID: this.session.username, SDATA: sdata }) },
+    };
+    // the one-time-code queries carry their URLs inside the encrypted body (frameURLs)
+    if (hostname != null) body.url = hostname;
+    const reply = await this._send(cmd, body, timeoutMs);
 
     let smsg = reply.payload.SMSG;
     if (typeof smsg === "string") smsg = JSON.parse(smsg);
@@ -404,6 +460,57 @@ export class ApplePasswords {
       }
       return true;
     });
+  }
+
+  // verification codes the vault can offer for this frame (and its parents): TOTP generators
+  // saved in Passwords, plus any code the helper just picked up from Messages. listing is
+  // free like login names; the TOTP value itself is read at fill time (readOneTimeCode)
+  async getOneTimeCodes(tabId, frameId, frameUrls, username) {
+    if (!this.ready) throw new Error("not unlocked");
+    if (!this.canFillOneTimeCodes) return { entries: [], requiresAuth: false };
+    const body = { ACT: Action.GHOST_SEARCH, TYPE: "oneTimeCodes", frameURLs: frameUrls };
+    if (username) body.username = username;
+    return this._withLock(async () => {
+      const res = await this._encryptedQuery(Command.GET_ONE_TIME_CODES, tabId, null, body, 8000, frameId);
+      const requiresAuth = !!res.RequiresUserAuthenticationToFill;
+      if (res.STATUS === QueryStatus.Success) return { entries: normalizeOtpEntries(res.Entries), requiresAuth };
+      if (res.STATUS === QueryStatus.NoResults) return { entries: [], requiresAuth };
+      throw queryStatusError(res.STATUS);
+    });
+  }
+
+  // the current value of a TOTP generator, fetched the moment the user picks it so a code
+  // listed 20 seconds ago isnt filled after it rotated. may require Touch ID, so no timeout
+  async readOneTimeCode(tabId, frameId, frameUrls, username) {
+    if (!this.ready) throw new Error("not unlocked");
+    const body = { ACT: Action.SEARCH, TYPE: "oneTimeCodes", frameURLs: frameUrls };
+    if (username) body.username = username;
+    return this._withLock(async () => {
+      const res = await this._encryptedQuery(Command.DID_FILL_ONE_TIME_CODE, tabId, null, body, null, frameId);
+      if (res.STATUS === QueryStatus.Success) return normalizeOtpEntries(res.Entries);
+      if (res.STATUS === QueryStatus.NoResults) return [];
+      throw queryStatusError(res.STATUS);
+    });
+  }
+
+  // hand off to the Passwords app. plain (unencrypted) command, no reply to wait for.
+  //   search:      open the app filtered to this site (the place to read a note, edit, etc)
+  //   newPassword: the app's new-login sheet pre-filled with this site
+  //   totp:        set up a verification-code generator from an otpauth:// URI on the page
+  launchPasswordsApp({ searchUrl, newPasswordUrl, totpUri, totpPageUrl } = {}) {
+    if (!this.port) throw new Error("not connected");
+    const msg = { cmd: Command.LAUNCH_PASSWORDS_APP };
+    if (totpUri) {
+      if (!this.canSetUpTotp) throw new Error("this helper cant set up verification codes");
+      msg.setUpTOTPURI = totpUri;
+      if (totpPageUrl) msg.setUpTOTPPageURL = totpPageUrl;
+    } else if (newPasswordUrl) {
+      if (!this.canOpenPasswordsAppToNewPasswordSheet) throw new Error("this helper cant open the new-password sheet");
+      msg.newPasswordWithSuggestedURL = newPasswordUrl;
+    } else if (searchUrl) {
+      msg.searchQueryURL = searchUrl;
+    }
+    this.port.postMessage(msg);
   }
 
   disconnect() {

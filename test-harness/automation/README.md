@@ -40,5 +40,6 @@ Override paths with env vars if needed:
 | `drive-clickjack.mjs` | A hidden/offscreen password field is NOT filled |
 | `drive-multi.mjs` | Chooser lists multiple saved logins |
 | `drive-pin.mjs` | Wrong PIN shows error; right PIN unlocks + fills |
+| `drive-otp.mjs` | Verification-code row on OTP fields; split six-box and single-field fill; no code row on login fields; shortcut focuses the login field; `otpauth://` finder on a 2FA setup page |
 
 Outputs screenshots to `shots/` (gitignored).

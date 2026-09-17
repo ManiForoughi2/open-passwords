@@ -21,7 +21,7 @@ It connects to the live vault, prompts for the PIN once, lists the logins for th
 | The complaint about Apple's extension | What this does |
 |---|---|
 | re-prompts for the 6-digit code every restart, sometimes every few hours | a keep-alive alarm holds the MV3 worker and the session alive, so you enter the code once per real session ([background.js](src/background.js)) |
-| "Enable AutoFill" balloon on every field, including OTP boxes | the inline dropdown shows up only on genuine login fields and never on one-time-code boxes ([content.js](src/content.js)) |
+| "Enable AutoFill" balloon on every field, including OTP boxes | the inline dropdown shows up only on genuine login fields. one-time-code boxes get nothing unless the vault actually holds a [verification code](#verification-codes-the-passwords-app-and-a-shortcut) for the site ([content.js](src/content.js)) |
 | 100% CPU / typing lag | the content script does zero per-keystroke work, it only reacts when you focus a login field |
 | re-downloads every image on hover to scan for QR codes | there's no image or QR scanning here at all |
 | fills the wrong field or wrong origin | fills are pinned to the page's origin and skip hidden/clickjacked fields |
@@ -86,6 +86,17 @@ The popup can suppress the browser's competing save bubble and autofill dropdown
 ```
 
 Then fully quit and reopen your browser (`Cmd+Q`). The **Hide browser password manager entirely** toggle in the popup now works; it sets `PasswordManagerEnabled=false` for every Chromium browser you have. Undo anytime with `./native/uninstall.sh`. The helper only runs three fixed `defaults` commands and accepts messages solely from this extension's ID.
+
+## Verification codes, the Passwords app, and a shortcut
+
+The helper that ships with recent macOS (verified on macOS 27) speaks a few commands beyond passwords, and v0.48 uses them:
+
+- **Verification codes.** Focus a one-time-code field and the dropdown lists the verification codes Apple Passwords holds for that site (the TOTP generators you set up in the Passwords app, with the account each belongs to). Pick one and the current value is read from the vault (Touch ID if your Mac asks) and typed in, one digit per box on a split six-box widget. Codes that land in Messages show up the same way when the helper announces them. The toolbar popup lists the same codes; if the page has no code field, Fill shows you the value instead.
+- **Open in Passwords app.** The popup links straight to this site's entry in the Passwords app, which is where notes live (the browser protocol never carries them). When the helper allows it there is also **New login in Passwords app…**, which opens the app's new-login sheet pre-filled with the site.
+- **Set up verification code in Passwords….** On a 2FA setup page that prints an `otpauth://` link or setup key (most do, under "can't scan the QR?"), the popup offers to hand it to the Passwords app so the generator is created there. Only links and visible text are read; there is still no image or QR scanning.
+- **Keyboard shortcut.** `Cmd+Shift+.` reopens the dropdown on the focused login or code field, or focuses the login field if nothing is focused. Rebind it at `chrome://extensions/shortcuts`.
+
+Every code is offered behind a click, the same rule as passwords: a page never gets a code because a field appeared.
 
 ## How it works
 

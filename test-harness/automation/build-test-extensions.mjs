@@ -50,6 +50,32 @@ function patchBackground(src, kind) {
           break;
         }`,
     );
+  } else if (kind === "otp") {
+    // one TOTP generator in the vault for this site; the fill pushes a fixed code back to the
+    // asking frame exactly like the real handler does after reading it from the helper
+    src = src.replace(
+      /case "inlineLogins": \{[\s\S]*?\n        \}/,
+      `case "inlineLogins": {
+          sendResponse({ ok: true, locked: false, logins: [{ username: "test@example.com", sites: [] }] });
+          break;
+        }`,
+    );
+    src = src.replace(
+      /case "inlineOneTimeCodes": \{[\s\S]*?\n        \}/,
+      `case "inlineOneTimeCodes": {
+          sendResponse({ ok: true, locked: false, supported: true, rows: [{ id: 0, source: "totp", username: "alice@example.com", domain: "acme.example" }], requiresAuth: false });
+          break;
+        }`,
+    );
+    src = src.replace(
+      /case "inlineFillOneTimeCode": \{[\s\S]*?\n        \}/,
+      `case "inlineFillOneTimeCode": {
+          const host = sender.url ? new URL(sender.url).hostname.toLowerCase() : "";
+          const resp = await chrome.tabs.sendMessage(sender.tab.id, { type: "fillOtp", code: "246810", expectedHost: host }, { frameId: sender.frameId });
+          sendResponse({ ok: true, filled: !!resp?.filled });
+          break;
+        }`,
+    );
   } else if (kind === "pinflow") {
     src = src.replace(
       /case "inlineLogins": \{[\s\S]*?\n        \}/,
@@ -81,7 +107,7 @@ function patchBackground(src, kind) {
   return src;
 }
 
-const KINDS = ["unlocked", "multi", "locked", "pinflow"];
+const KINDS = ["unlocked", "multi", "locked", "pinflow", "otp"];
 
 await rm(OUT, { recursive: true, force: true });
 for (const kind of KINDS) {

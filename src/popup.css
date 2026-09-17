@@ -151,6 +151,25 @@ button.link:hover { background: none; }
 }
 .logins button:hover { background: color-mix(in srgb, var(--accent) 20%, Canvas); }
 
+/* verification codes: two-line rows, the code shown in place of Fill when nothing took it */
+.codes { margin-top: 4px; }
+.codes .u { white-space: normal; }
+.codes .code-label { display: block; font-weight: 500; }
+.codes .subnote { display: block; }
+.code-value {
+  font: 600 15px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 2px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #30d158 14%, Canvas);
+  color: color-mix(in srgb, #30d158 60%, CanvasText);
+  user-select: all;
+}
+
+/* hand-offs to the Passwords app */
+.app-links { margin-top: 6px; display: flex; flex-direction: column; align-items: flex-start; }
+.app-links button.link { font-size: 12px; padding: 5px 0; }
+
 /* Footer: Chrome-password guide */
 footer {
   border-top: 1px solid var(--line);

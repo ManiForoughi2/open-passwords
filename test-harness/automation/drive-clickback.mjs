@@ -17,7 +17,7 @@ const results = [];
 const ok = (n, c) => { results.push(c); console.log((c ? "PASS " : "FAIL ") + n); };
 // fill card1 to reach the "already logged in" state the user hit
 await page.locator("#u1").click(); await page.waitForTimeout(400);
-if (await box().count()) { await box().locator("text=Click to autofill").click(); await page.waitForTimeout(600); }
+if (await box().count()) { await box().locator("text=test@example.com").click(); await page.waitForTimeout(600); }
 let allShow = true;
 for (let i = 0; i < 3; i++) {
   await page.locator("#u2").click(); await page.waitForTimeout(350);

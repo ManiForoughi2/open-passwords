@@ -18,9 +18,9 @@ const box = () => page.locator('[data-open-passwords="suggestions"]');
 const txt = async () => (await box().count()) ? (await box().innerText()).replace(/\s+/g," ").trim() : "";
 
 await page.focus('input[name="username"]'); await page.waitForTimeout(400);
-ok("offer on focus", /Click to autofill/i.test(await txt()), await txt());
+ok("offer on focus", /Unlock to autofill/i.test(await txt()), await txt());
 
-await box().locator("text=Click to autofill").click(); await page.waitForTimeout(600);
+await box().locator("text=Unlock to autofill").click(); await page.waitForTimeout(600);
 ok("PIN field appears after click", /Enter the|code shown|6-digit/i.test(await txt()), await txt());
 await page.screenshot({path:join(SHOTS,"pin-1-field.png")});
 

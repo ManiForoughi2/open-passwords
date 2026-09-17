@@ -13,7 +13,7 @@ await page.waitForTimeout(300);
 const box = () => page.locator('[data-open-passwords="suggestions"]');
 await page.locator("#u2").focus();
 await page.waitForTimeout(400);
-await box().locator("text=Click to autofill").click();
+await box().locator("text=test@example.com").click();
 await page.waitForTimeout(600);
 const u1 = await page.inputValue("#u1");
 const u2 = await page.inputValue("#u2");

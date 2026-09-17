@@ -30,9 +30,9 @@ await withExt(UNLOCKED, "unlocked", async (ctx) => {
     await page.focus('input[name="username"]').catch(() => {});
     await page.waitForTimeout(500);
     const t1 = await txt(page);
-    check(`unlocked/${pg}: offer on focus`, /Click to autofill/i.test(t1), `got "${t1}"`);
+    check(`unlocked/${pg}: offer on focus`, /test@example.com/i.test(t1), `got "${t1}"`);
     await page.screenshot({ path: join(SHOTS, `v4-${pg}-offer.png`) });
-    await box(page).locator("text=Click to autofill").click().catch(() => {});
+    await box(page).locator("text=test@example.com").click().catch(() => {});
     await page.waitForTimeout(500);
     const val = await page.inputValue('input[name="username"]').catch(() => "");
     check(`unlocked/${pg}: fills after click`, val === "test@example.com", `value="${val}"`);
@@ -66,8 +66,8 @@ await withExt(LOCKED, "locked", async (ctx) => {
   await page.waitForTimeout(300);
   await page.focus('input[name="username"]').catch(() => {});
   await page.waitForTimeout(400);
-  check("locked: offer on focus", /Click to autofill/i.test(await txt(page)), await txt(page));
-  await box(page).locator("text=Click to autofill").click().catch(() => {});
+  check("locked: offer on focus", /Unlock to autofill/i.test(await txt(page)), await txt(page));
+  await box(page).locator("text=Unlock to autofill").click().catch(() => {});
   await page.waitForTimeout(500);
   const t2 = await txt(page);
   check("locked: PIN field after click", /Enter the code/i.test(t2), `got "${t2}"`);
