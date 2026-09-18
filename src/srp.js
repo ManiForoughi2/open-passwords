@@ -1,7 +1,4 @@
-// SRP-6a session for the Apple Passwords protocol. the 6-digit PIN macOS shows is
-// the SRP password. after handshake the shared key seeds AES-GCM for the encrypted
-// query channel.
-// ported from au2001/icloud-passwords-firefox (Apache-2.0). see NOTICE
+// the 6-digit PIN macOS shows is the SRP password. ported from au2001/icloud-passwords-firefox (Apache-2.0), see NOTICE
 
 import {
   sha256,
@@ -19,17 +16,14 @@ import {
   concatBytes,
 } from "./crypto.js";
 
-// RFC 5054 appendix A, 3072-bit group. must be exactly the canonical safe prime,
-// one wrong digit silently breaks interop with the helper and weakens the group.
-// byte length checked below
+// RFC 5054 appendix A 3072-bit group, one wrong digit silently breaks interop with the helper
 const GROUP_PRIME = BigInt(
   "0x" +
     "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA18217C32905E462E36CE3BE39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF6955817183995497CEA956AE515D2261898FA051015728E5A8AAAC42DAD33170D04507A33A85521ABDF1CBA64ECFB850458DBEF0A8AEA71575D060C7DB3970F85A6E1E4C7ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6BF12FFA06D98A0864D87602733EC86A64521F2B18177B200CBBE117577A615D6C770988C0BAD946E208E24FA074E5AB3143DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF",
 );
-const GROUP_PRIME_BYTES = 3072 >> 3; // 384
+const GROUP_PRIME_BYTES = 3072 >> 3;
 const GROUP_GENERATOR = 5n;
 
-// fail fast if the prime is mis-edited (canonical group is 384 bytes / 768 hex)
 if (GROUP_PRIME.toString(16).length !== 768) {
   throw new Error("SRP group prime is corrupt (expected 3072 bits / 768 hex digits)");
 }
@@ -52,17 +46,16 @@ export class SRPSession {
     this.usernameBytes = randomBytes(16);
     this.username = this.serialize(this.usernameBytes);
     this.clientPrivateKey = bytesToBigInt(randomBytes(32));
-    this.serverPublicKey = undefined; // B
-    this.salt = undefined; // s
-    this.sharedKey = undefined; // K, SRP shared key
+    this.serverPublicKey = undefined;
+    this.salt = undefined;
+    this.sharedKey = undefined;
   }
 
   get clientPublicKey() {
-    return powmod(GROUP_GENERATOR, this.clientPrivateKey, GROUP_PRIME); // A
+    return powmod(GROUP_GENERATOR, this.clientPrivateKey, GROUP_PRIME);
   }
 
-  // A and B keep the helper's own minimal big-endian encoding here (what we put on the
-  // wire). only u pads them, per RFC 5054 PAD() - matching the reference client
+  // A and B stay minimal big-endian on the wire, only u pads them per RFC 5054 PAD()
   get clientPublicKeyBytes() {
     return bigIntToBytes(this.clientPublicKey);
   }
@@ -81,10 +74,8 @@ export class SRPSession {
     return hexToBytes(str.replace(/^0x/, ""));
   }
 
-  // salt stays the exact bytes the helper sent. round-tripping it through a bigint drops
-  // any leading zero byte, which silently changes x and M and looks like a wrong PIN
+  // salt stays raw bytes, a bigint round trip drops a leading zero and looks like a wrong PIN
   setServerPublicKey(serverPublicKey, saltBytes) {
-    // RFC 5054: abort if B % N == 0, keep B strictly in (0, N)
     if (serverPublicKey <= 0n || serverPublicKey >= GROUP_PRIME)
       throw new Error("invalid server public key: out of range");
     if (mod(serverPublicKey, GROUP_PRIME) === 0n) throw new Error("invalid server public key");
@@ -100,18 +91,15 @@ export class SRPSession {
     const A = this.clientPublicKeyBytes;
     const B = this.serverPublicKeyBytes;
 
-    // u = H(PAD(A) | PAD(B)); RFC 5054 requires u != 0 or the password is bypassed
+    // RFC 5054 requires u != 0 or the password is bypassed
     const u = bytesToBigInt(await sha256(padBytes(A, GROUP_PRIME_BYTES), padBytes(B, GROUP_PRIME_BYTES)));
     if (u === 0n) throw new Error("invalid SRP parameter: u == 0");
-    // k = H(N | PAD(g))
     const k = bytesToBigInt(
       await sha256(bigIntToBytes(GROUP_PRIME), padBytes(bigIntToBytes(GROUP_GENERATOR), GROUP_PRIME_BYTES)),
     );
-    // x = H(salt | H(I ":" P))
     const innerHash = await sha256(utf8ToBytes(this.username + ":" + pin));
     const x = bytesToBigInt(await sha256(this.salt, innerHash));
 
-    // S = (B - k * g^x) ^ (a + u * x) % N
     const base = mod(this.serverPublicKey - mod(k * powmod(GROUP_GENERATOR, x, GROUP_PRIME), GROUP_PRIME), GROUP_PRIME);
     const exp = this.clientPrivateKey + u * x;
     const S = powmod(base, exp, GROUP_PRIME);
@@ -119,7 +107,6 @@ export class SRPSession {
     this.sharedKey = bytesToBigInt(await sha256(bigIntToBytes(S)));
   }
 
-  // M = H( H(N) XOR H(g) | H(I) | s | A | B | K )
   async computeM() {
     if (this.sharedKey === undefined) throw new Error("missing shared key");
     const hN = await sha256(bigIntToBytes(GROUP_PRIME));
@@ -138,22 +125,18 @@ export class SRPSession {
     );
   }
 
-  // HAMK = H( A | M | K )
   async computeHMAC(m) {
     return await sha256(this.clientPublicKeyBytes, m, padBytes(bigIntToBytes(this.sharedKey), 32));
   }
 
   async getEncryptionKey() {
     if (this.sharedKey === undefined) return undefined;
-    // session key is first 16 bytes of the 32-byte SHA-256 shared key. pad to 32
-    // first: if the bigint high byte is zero, bigIntToBytes returns a short buffer
-    // and slicing would drop a leading zero, giving the wrong key
+    // pad before slicing, a zero high byte makes bigIntToBytes short and would drop the leading zero
     const key = padBytes(bigIntToBytes(this.sharedKey), 32).slice(0, 16);
     return crypto.subtle.importKey("raw", key, "AES-GCM", false, ["encrypt", "decrypt"]);
   }
 
-  // outbound framing is ciphertext+tag || iv (IV appended last). Apple's
-  // SecretSession.encrypt does concat(ciphertext, iv), helper expects that
+  // ciphertext+tag || iv, matches Apple's SecretSession.encrypt concat(ciphertext, iv)
   async encrypt(obj) {
     const key = await this.getEncryptionKey();
     if (!key) throw new Error("missing encryption key");
@@ -163,9 +146,7 @@ export class SRPSession {
     return concatBytes(ct, iv);
   }
 
-  // inbound framing is iv || ciphertext+tag. Apple's SecretSession.decrypt reads
-  // the IV as the first 16 bytes (bitSlice(e,0,keyLen)), Firefox ref does the same.
-  // asymmetric with encrypt() on purpose, we never decrypt our own output
+  // inbound is iv || ciphertext+tag, asymmetric with encrypt() on purpose
   async decrypt(bytes) {
     const key = await this.getEncryptionKey();
     if (!key) throw new Error("missing encryption key");

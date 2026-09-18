@@ -1,6 +1,4 @@
-// crypto + byte helpers for the Apple Passwords native-messaging protocol.
-// ported from au2001/icloud-passwords-firefox (Apache-2.0) to browser APIs:
-// Uint8Array + bigint + WebCrypto, no Node Buffer. see NOTICE
+// ported from au2001/icloud-passwords-firefox (Apache-2.0) to browser APIs, see NOTICE
 
 export function hexToBytes(hex) {
   if (hex.startsWith("0x")) hex = hex.slice(2);
@@ -49,7 +47,6 @@ export function concatBytes(...arrays) {
   return out;
 }
 
-// bigint <-> big-endian bytes
 export function bigIntToBytes(n) {
   if (n === 0n) return new Uint8Array([0]);
   const out = [];
@@ -66,7 +63,6 @@ export function bytesToBigInt(bytes) {
   return n;
 }
 
-// left-pad to fixed width, SRP hashing needs PAD() so widths match
 export function padBytes(bytes, length) {
   if (bytes.length >= length) return bytes.slice(bytes.length - length);
   const out = new Uint8Array(length);
@@ -74,7 +70,6 @@ export function padBytes(bytes, length) {
   return out;
 }
 
-// constant-time equality, no early-out on first diff
 export function constantTimeEqual(a, b) {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -111,7 +106,6 @@ export function powmod(base, exp, n) {
   return result;
 }
 
-// status codes returned by the helper
 export const QueryStatus = {
   Success: 0,
   GenericError: 1,

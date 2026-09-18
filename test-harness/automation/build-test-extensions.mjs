@@ -1,11 +1,4 @@
-// mock extension variants for headless tests: copy real src/, swap helper-backed
-// handlers for mocks so no macOS helper or real PIN needed. output to .builds/
-//   node build-test-extensions.mjs
-// builds:
-//   unlocked - inlineLogins returns 1 login; inlineFill pushes mock cred
-//   multi    - inlineLogins returns 2 logins (chooser test)
-//   locked   - inlineLogins reports locked (PIN-prompt test)
-//   pinflow  - requestChallenge/verifyPin mocked (123456 unlocks); fill mocked
+// mock extension variants so no macOS helper or real PIN is needed, output to .builds/
 
 import { mkdir, rm, cp, readFile, writeFile } from "fs/promises";
 import { dirname, join } from "path";
@@ -51,8 +44,6 @@ function patchBackground(src, kind) {
         }`,
     );
   } else if (kind === "otp") {
-    // one TOTP generator in the vault for this site; the fill pushes a fixed code back to the
-    // asking frame exactly like the real handler does after reading it from the helper
     src = src.replace(
       /case "inlineLogins": \{[\s\S]*?\n        \}/,
       `case "inlineLogins": {

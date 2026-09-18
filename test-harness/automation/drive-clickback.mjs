@@ -1,6 +1,5 @@
 import { fileURLToPath } from "url";
-// regression: dropdown must reappear on click-away then click-back
-// bug was a scroll listener destroying it on the focus-scroll
+// regression: a scroll listener used to destroy the dropdown on the focus-scroll
 const pw = await import(process.env.OP_PW || "/tmp/op-test/node_modules/playwright/index.js");
 const { chromium } = pw.default || pw;
 const EXT = process.env.OP_EXT || fileURLToPath(new URL("./.builds/unlocked", import.meta.url));
@@ -15,7 +14,6 @@ await page.waitForTimeout(300);
 const box = () => page.locator('[data-open-passwords="suggestions"]');
 const results = [];
 const ok = (n, c) => { results.push(c); console.log((c ? "PASS " : "FAIL ") + n); };
-// fill card1 to reach the "already logged in" state the user hit
 await page.locator("#u1").click(); await page.waitForTimeout(400);
 if (await box().count()) { await box().locator("text=test@example.com").click(); await page.waitForTimeout(600); }
 let allShow = true;

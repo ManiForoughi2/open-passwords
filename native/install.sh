@@ -1,13 +1,11 @@
 #!/bin/sh
-# registers the "hide password manager" policy helper as a native messaging host for every
-# chromium browser found (chrome, brave variants, edge, arc, vivaldi, chromium). run once after cloning. macOS only
+# macOS only, run once after cloning
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 EXT_ID="pejdijmoenmkgeppbflobdenhhabjlaj" # the ID our manifest key forces
 SUPPORT="$HOME/Library/Application Support"
 
-# copy the helper OUTSIDE the repo so moving it wont break the host path, and out of
-# ~/Downloads where TCC can stop the browser launching it. Application Support has no gate
+# outside the repo so moving it wont break the host path, and out of ~/Downloads where TCC can block the browser launching it
 APPDIR="$SUPPORT/OpenPasswords"
 mkdir -p "$APPDIR"
 cp "$DIR/openpasswords-policy.py" "$APPDIR/openpasswords-policy.py"
@@ -18,9 +16,7 @@ cp "$DIR/openpasswords-autopair.py" "$APPDIR/openpasswords-autopair.py"
 chmod +x "$APPDIR/openpasswords-autopair.py"
 AUTOPAIR="$APPDIR/openpasswords-autopair.py"
 
-# wrap the reader in a tiny app bundle so the macOS permission prompt says "Open Passwords"
-# rather than "Python 3". needs a C compiler (Xcode command line tools); without one the
-# plain script is registered and the prompt names python
+# app bundle so the permission prompt says "Open Passwords" instead of "Python 3"
 APP="$APPDIR/Open Passwords Helper.app"
 if command -v cc >/dev/null 2>&1; then
   rm -rf "$APP"
@@ -54,8 +50,6 @@ EOF
   fi
 fi
 
-# collect the user-data dir of every installed chromium browser: a fixed set for chrome/edge/
-# chromium/arc/vivaldi, and every BraveSoftware/* variant (stable, beta, nightly, ...)
 found=0
 register() {
   d="$1/NativeMessagingHosts"
@@ -69,7 +63,6 @@ register() {
   "allowed_origins": ["chrome-extension://$EXT_ID/"]
 }
 EOF
-  # pairing-code reader. only runs when the popup toggle is on
   cat > "$d/com.openpasswords.autopair.json" <<EOF
 {
   "name": "com.openpasswords.autopair",

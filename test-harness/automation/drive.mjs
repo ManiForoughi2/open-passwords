@@ -22,7 +22,6 @@ const UNLOCKED = fileURLToPath(new URL("./.builds/unlocked", import.meta.url));
 const LOCKED = fileURLToPath(new URL("./.builds/locked", import.meta.url));
 
 await withExt(UNLOCKED, "unlocked", async (ctx) => {
-  // single mock login auto-fills on click (mock returns 1)
   for (const pg of ["login-standard", "login-twostep", "signup", "forum"]) {
     const page = await ctx.newPage();
     await page.goto(`${BASE}/${pg}.html`, { waitUntil: "domcontentloaded" });

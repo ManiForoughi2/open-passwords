@@ -17,7 +17,6 @@ if (!frame) { console.log("FAIL: iframe-login frame not found"); await ctx.close
 const userInFrame = frame.locator('input[autocomplete="username"], input[name="username"], input[type="text"]').first();
 await userInFrame.focus().catch(() => {});
 await page.waitForTimeout(700);
-// dropdown renders inside the iframe document, not the top page
 const ddInFrame = await frame.locator('[data-open-passwords="suggestions"]').count();
 ok("same-origin iframe login: dropdown shows inside the frame", ddInFrame > 0);
 await ctx.close();

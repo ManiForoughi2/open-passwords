@@ -11,7 +11,6 @@ await page.focus('input[name=username]'); await page.waitForTimeout(400);
 const offered = await box().count()>0;
 if(offered){ await box().locator("text=test@example.com").click(); await page.waitForTimeout(600); }
 const pval=await page.inputValue('input[name=password]').catch(()=>"");
-// pass if hidden password not filled - visibility guard blocks exfil
 const pass = pval==="";
 console.log(`offered on username: ${offered}; hidden password filled: ${pval?"YES (BAD)":"NO (good)"}`);
 console.log(pass?"PASS #18 hidden password field not filled (clickjack defense)":"FAIL clickjack: hidden field got filled");

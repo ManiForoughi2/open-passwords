@@ -13,8 +13,6 @@ function show(name) {
   for (const [k, el] of Object.entries(views)) el.hidden = k !== name;
 }
 
-// togglable suppression of the browser's save/update bubble. ON sets the pref off, OFF hands
-// control back to the browser. the choice persists and the background respects it on startup
 const pmToggle = document.getElementById("pm-toggle");
 const pmNote = document.getElementById("pm-note");
 
@@ -43,7 +41,7 @@ pmToggle.addEventListener("change", () => {
   if (!pref) return;
   const on = pmToggle.checked;
   chrome.storage?.local?.set({ suppressSaveBubble: on });
-  // read back after writing - dont trust the callback, the browser can silently refuse
+  // read back after writing, the browser can silently refuse
   const verify = () =>
     pref.get({}, (d) => {
       renderPmToggle();
@@ -57,7 +55,7 @@ pmToggle.addEventListener("change", () => {
 
 renderPmToggle();
 
-// hide the browser password manager via a real macOS config profile (a user defaults write isnt forced), approved once in System Settings
+// a user defaults write isnt a forced policy, only a config profile approved once in System Settings is
 const policyToggle = document.getElementById("policy-toggle");
 const policyNote = document.getElementById("policy-note");
 
@@ -96,7 +94,7 @@ policyToggle.addEventListener("change", async () => {
     policyToggle.checked = !on;
     return;
   }
-  // reflect the REAL forced-policy state; the profile only sticks once approved
+  // the profile only sticks once approved, reflect the real forced state
   policyToggle.checked = !!r.hidden;
   if (on && !r.hidden) policyNote.textContent = "approve the profile in System Settings, then reopen this popup";
   else if (!on && r.hidden) policyNote.textContent = "remove the profile in System Settings, then reopen this popup";
@@ -105,8 +103,7 @@ policyToggle.addEventListener("change", async () => {
 
 renderPolicyToggle();
 
-// hides the browser's address/contact autofill and typed-form history (the email-list
-// dropdown). credit-card autofill stays untouched so google pay keeps working
+// credit-card autofill stays untouched so google pay keeps working
 const afToggle = document.getElementById("af-toggle");
 const afNote = document.getElementById("af-note");
 
@@ -144,7 +141,6 @@ afToggle.addEventListener("change", () => {
 
 renderAfToggle();
 
-// swallow the browser's conditional passkey autofill dropdown; plain stored flag the MAIN-world guard reads, explicit sign-in unaffected
 const pkToggle = document.getElementById("pk-toggle");
 chrome.storage?.local?.get({ hidePasskeys: false }, (d) => {
   pkToggle.checked = !!d.hidePasskeys;
@@ -153,9 +149,7 @@ pkToggle.addEventListener("change", () => {
   chrome.storage?.local?.set({ hidePasskeys: pkToggle.checked });
 });
 
-// read the 6-digit pairing code off the helper's window and enter it, so a fresh browser
-// launch pairs on its own. off by default: it needs the browser to be allowed to automate
-// System Events, and macOS asks for that the first time
+// off by default, needs the browser allowed to automate System Events and macOS asks the first time
 const autoPairToggle = document.getElementById("autopair-toggle");
 const autoPairNote = document.getElementById("autopair-note");
 chrome.storage?.local?.get({ autoPair: false }, (d) => {
@@ -214,7 +208,6 @@ async function render(state) {
   if (state === "unlocked") {
     await renderLogins();
     show("unlocked");
-    // codes and app links fill in after the logins are up, they arent worth delaying it for
     renderCodes();
     renderAppLinks();
     return;
@@ -259,8 +252,6 @@ async function renderLogins() {
   }
 }
 
-// verification codes for this site, under the logins. Fill puts the code into the page's
-// code field; if the page has none the code is shown here instead so it can be typed
 async function renderCodes() {
   const list = document.getElementById("codes");
   list.innerHTML = "";
@@ -293,7 +284,6 @@ async function renderCodes() {
       const r = await send({ type: "fillOneTimeCode", id: row.id });
       if (r?.ok && r.filled) return window.close();
       if (r?.ok && r.code) {
-        // no code field took it: show the value, it rotates so dont let it linger
         fill.replaceWith(codeBadge(r.code));
         return;
       }
@@ -314,8 +304,6 @@ function codeBadge(code) {
   return b;
 }
 
-// Passwords-app hand-offs. the search link is always there once unlocked; the other two
-// depend on what this macOS's helper advertises and on what the page shows
 let caps = {};
 let pageTotpUri = null;
 async function renderAppLinks() {
@@ -368,7 +356,6 @@ document.getElementById("verify").addEventListener("click", async () => {
 pinInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") document.getElementById("verify").click();
 });
-// auto-submit once all 6 digits are in, like apple - no Enter needed
 pinInput.addEventListener("input", () => {
   if (pinInput.value.trim().length === 6) document.getElementById("verify").click();
 });
@@ -386,7 +373,6 @@ refreshBtn.addEventListener("click", async () => {
   refreshBtn.disabled = true;
   refreshBtn.classList.add("spinning");
   if (lastState === "needs_pin") {
-    // locked: refresh means "get me a fresh code on the mac"
     pinError.hidden = true;
     pinInput.value = "";
     const res = await send({ type: "requestChallenge" });
@@ -396,8 +382,6 @@ refreshBtn.addEventListener("click", async () => {
       pinError.hidden = false;
     }
   } else {
-    // unlocked: drop cached passwords, re-fill the page with a fresh read (a password just
-    // changed in the Passwords app lands without re-clicking Fill), then re-list
     const r = await send({ type: "refreshAndRefill" });
     await renderLogins();
     renderCodes();
@@ -420,7 +404,7 @@ document.getElementById("newcode").addEventListener("click", async () => {
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "state") {
-    // capabilities arrive with the hello, which is what precedes the first state change
+    // capabilities arrive with the hello, which precedes the first state change
     send({ type: "getState" }).then((r) => {
       caps = r?.caps || caps;
       render(msg.state);
@@ -434,8 +418,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   renderAutoPairError(res?.autoPairError);
   let state = res?.state ?? "disconnected";
   if (state === "needs_pin") {
-    // trigger the macOS access prompt, but never on top of a code thats already showing
-    // (the inline box may have just asked for one) - a second prompt kills the first code
+    // never on top of a code thats already showing, a second prompt kills the first code
     const ch = await send({ type: "requestChallenge", ifNeeded: true });
     state = ch?.state ?? state;
   }

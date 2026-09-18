@@ -1,5 +1,4 @@
-// security regression: cross-origin iframe must not get an autofill offer
-// confused-deputy leak from all_frames: a foreign sub-frame could fill the top page password
+// a foreign sub-frame must never get an offer (confused deputy via all_frames)
 import { fileURLToPath } from "url";
 const pw = await import(process.env.OP_PW || "/tmp/op-test/node_modules/playwright/index.js");
 const { chromium } = pw.default || pw;
@@ -12,7 +11,6 @@ const ctx = await chromium.launchPersistentContext("/tmp/op-xo-" + Date.now(), {
 });
 ctx.serviceWorkers()[0] || (await ctx.waitForEvent("serviceworker", { timeout: 10000 }).catch(() => null));
 const page = await ctx.newPage();
-// top page on 127.0.0.1, inject iframe from a different origin (openpw.test)
 await page.goto(`${BASE}/login-standard.html`, { waitUntil: "domcontentloaded" });
 await page.evaluate(() => {
   const f = document.createElement("iframe");

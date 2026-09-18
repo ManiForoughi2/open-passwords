@@ -1,4 +1,4 @@
-// relay the stored hidePasskeys flag to the MAIN-world guard via a window event (it cant read chrome.storage)
+// the MAIN-world guard cant read chrome.storage, so relay hidePasskeys via a window event
 (() => {
   const push = (on) =>
     dispatchEvent(new Event(on ? "openpasswords:hide-passkeys-on" : "openpasswords:hide-passkeys-off"));

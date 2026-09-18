@@ -6,7 +6,6 @@ const ctx=await chromium.launchPersistentContext("/tmp/op-multi-"+Date.now(),{he
 ctx.serviceWorkers()[0]||await ctx.waitForEvent("serviceworker",{timeout:10000}).catch(()=>null);
 const page=await ctx.newPage(); await page.goto("http://127.0.0.1:8799/login-standard.html",{waitUntil:"domcontentloaded"}); await page.waitForTimeout(300);
 const box=()=>page.locator('[data-open-passwords="suggestions"]');
-// the dropdown lists every saved account directly (no "click to autofill" step any more)
 await page.focus('input[name="username"]'); await page.waitForTimeout(600);
 const t=(await box().count())?(await box().innerText()).replace(/\s+/g," "):"";
 const both = /alice@example\.com/.test(t) && /bob@work\.com/.test(t);

@@ -1,7 +1,3 @@
-// verification codes on one-time-code fields: the dropdown offers the vault's TOTP entry, a
-// click fills a split six-box widget one digit per box and a single field whole; a login
-// field never shows a code row; the shortcut message reopens/focuses; findTotpUri reads an
-// otpauth:// link off the page
 import { fileURLToPath } from "url";
 const pw = await import(process.env.OP_PW || "/tmp/op-test/node_modules/playwright/index.js");
 const { chromium } = pw.default || pw;
@@ -17,7 +13,6 @@ const sw = ctx.serviceWorkers()[0] || (await ctx.waitForEvent("serviceworker", {
 const box = (page) => page.locator('[data-open-passwords="suggestions"]');
 const txt = async (page) => (await box(page).count()) ? (await box(page).innerText()).replace(/\s+/g, " ").trim() : "";
 
-// split widget: one digit per box
 {
   const page = await ctx.newPage();
   await page.goto(`${BASE}/otp-multibox.html`, { waitUntil: "domcontentloaded" });
@@ -35,7 +30,6 @@ const txt = async (page) => (await box(page).count()) ? (await box(page).innerTe
   await page.close();
 }
 
-// single field: the whole code
 {
   const page = await ctx.newPage();
   await page.goto(`${BASE}/otp-singlefield.html`, { waitUntil: "domcontentloaded" });
@@ -50,8 +44,7 @@ const txt = async (page) => (await box(page).count()) ? (await box(page).innerTe
   await page.close();
 }
 
-// github issue #2: a real mouse click on a row must not fall through to a link behind the
-// dropdown (x.com had "forgot password" right under it)
+// issue #2: a real click on a row must not fall through to a link behind the dropdown
 {
   const page = await ctx.newPage();
   await page.goto(`${BASE}/login-standard.html`, { waitUntil: "domcontentloaded" });
@@ -62,7 +55,6 @@ const txt = async (page) => (await box(page).count()) ? (await box(page).innerTe
   const r = await row.boundingBox();
   ok("clickthrough: row is up", !!r, "no row");
   if (r) {
-    // a link covering the exact spot, layered under the dropdown
     await page.evaluate(({ x, y, w, h }) => {
       const a = document.createElement("a");
       a.href = "#clicked-through";
@@ -81,7 +73,6 @@ const txt = async (page) => (await box(page).count()) ? (await box(page).innerTe
   await page.close();
 }
 
-// a login field gets logins, never a code row
 {
   const page = await ctx.newPage();
   await page.goto(`${BASE}/login-standard.html`, { waitUntil: "domcontentloaded" });
@@ -93,7 +84,6 @@ const txt = async (page) => (await box(page).count()) ? (await box(page).innerTe
   await page.close();
 }
 
-// shortcut with nothing focused puts focus on the login field, whose offer then appears
 if (sw) {
   const page = await ctx.newPage();
   await page.goto(`${BASE}/login-standard.html`, { waitUntil: "domcontentloaded" });
@@ -110,7 +100,6 @@ if (sw) {
   ok("shortcut: offer appears", /test@example\.com/.test(await txt(page)), await txt(page));
   await page.close();
 
-  // otpauth link on a 2FA setup page is found for the popup's set-up row
   const setup = await ctx.newPage();
   await setup.goto(`${BASE}/totp-setup.html`, { waitUntil: "domcontentloaded" });
   await setup.waitForTimeout(300);

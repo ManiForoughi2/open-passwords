@@ -1,8 +1,4 @@
-// client for the macOS PasswordManagerBrowserExtensionHelper over
-// chrome.runtime.connectNative("com.apple.passwordmanager").
-// flow: GET_CAPABILITIES -> handshake m0 (challenge / PIN prompt) -> user enters
-// PIN -> handshake m2 (verify) -> encrypted queries.
-// ported from au2001/icloud-passwords-firefox (Apache-2.0). see NOTICE
+// ported from au2001/icloud-passwords-firefox (Apache-2.0), see NOTICE
 
 import { SRPSession, SecretSessionVersion, MSGType } from "./srp.js";
 import {
@@ -19,12 +15,10 @@ import {
 const NATIVE_HOST = "com.apple.passwordmanager";
 const BROWSER_NAME = "Chrome";
 const VERSION = "1.0";
-// how long we still trust a code the Mac put on screen. past this we re-prompt rather than
-// verify against a challenge the user has probably lost track of
+// past this we re-prompt instead of verifying against a code the user lost track of
 const CHALLENGE_TTL_MS = 3 * 60_000;
 
-// the typed code was for a challenge that no longer exists. callers show "new code" wording
-// instead of "incorrect", because retyping the old code can never work
+// callers show "new code" wording for this, retyping the old code can never work
 function challengeError(message) {
   const e = new Error(message);
   e.code = "challenge_reissued";
@@ -38,7 +32,7 @@ export const Command = {
   SET_ICON_AND_TITLE: 3,
   GET_LOGIN_NAMES_FOR_URL: 4,
   GET_PASSWORD_FOR_LOGIN_NAME: 5,
-  SET_PASSWORD_FOR_LOGIN_NAME_URL: 6, // save or update a login
+  SET_PASSWORD_FOR_LOGIN_NAME_URL: 6,
   NEW_ACCOUNT_FOR_URL: 7,
   TAB_EVENT: 8,
   PASSWORDS_DISABLED: 9,
@@ -46,13 +40,12 @@ export const Command = {
   LAUNCH_PASSWORDS_APP: 13, // also carries "new password sheet" and "set up TOTP" variants
   GET_CAPABILITIES: 14,
   ONE_TIME_CODE_AVAILABLE: 15, // helper -> us, unsolicited: a code just arrived (Messages)
-  GET_ONE_TIME_CODES: 16, // verification codes the vault holds for these frame URLs
+  GET_ONE_TIME_CODES: 16,
   DID_FILL_ONE_TIME_CODE: 17, // read the current TOTP value right before filling it
   SET_UP_TOTP_GENERATOR: 18, // status reply to the set-up-TOTP variant of cmd 13
   OPEN_URL_IN_SAFARI: 1984,
 };
 
-// the QID string the helper expects alongside each encrypted query
 const QueryId = {
   [4]: "CmdGetLoginNames4URL",
   [5]: "CmdGetPassword4LoginName",
@@ -64,18 +57,16 @@ const Action = { UPDATE: 1, SEARCH: 2, ADD_NEW: 3, MAYBE_ADD: 4, GHOST_SEARCH: 5
 
 export const State = {
   Disconnected: "disconnected",
-  NeedsPin: "needs_pin", // challenge issued, waiting for the user's PIN
-  Unlocked: "unlocked", // session key established
-  NoHelper: "no_helper", // native host missing
+  NeedsPin: "needs_pin",
+  Unlocked: "unlocked",
+  NoHelper: "no_helper",
 };
 
 function jsonToBase64(obj) {
   return bytesToBase64(new TextEncoder().encode(JSON.stringify(obj)));
 }
 
-// one-time-code entries as apple's extension reads them: source "totp" (a generator saved in
-// Passwords - code is the value at list time, username/domain identify the generator) or a
-// delivered code (Messages), where the code is the only thing there is
+// totp entries can arrive without a code, the value is read at fill time
 function normalizeOtpEntries(entries) {
   return (Array.isArray(entries) ? entries : [])
     .map((e) => ({
@@ -93,20 +84,18 @@ export class ApplePasswords {
     this.session = undefined;
     this.capabilities = undefined;
     this.state = State.Disconnected;
-    this._waiters = new Map(); // cmd -> {resolve, reject, timer}
+    this._waiters = new Map();
     this._onState = () => {};
     this._onOneTimeCode = () => {};
-    this._challengeAt = 0; // when the current code went up on the Mac
-    this._challengeGen = 0; // bumped per challenge, so a queued verify can spot a stale one
-    this._challengePending = undefined; // in-flight requestChallenge, shared by callers
-    // native protocol echoes the same cmd on replies with no correlation id, so two
-    // in-flight requests with the same cmd collide. serialize all exchanges here
+    this._challengeAt = 0;
+    this._challengeGen = 0;
+    this._challengePending = undefined;
+    // replies carry no correlation id, so same-cmd requests collide. serialize everything
     this._lock = Promise.resolve();
   }
 
   _withLock(fn) {
     const run = this._lock.then(fn, fn);
-    // keep chain alive even if fn rejects, so the next caller still runs
     this._lock = run.then(
       () => {},
       () => {},
@@ -118,14 +107,11 @@ export class ApplePasswords {
     this._onState = fn;
   }
 
-  // the helper pushes this when a one-time code shows up (an SMS landing in Messages, like
-  // safari's code autofill). callers re-query GET_ONE_TIME_CODES for the active tab
   onOneTimeCodeAvailable(fn) {
     this._onOneTimeCode = fn;
   }
 
-  // capability flags from the hello reply. all default false so an older helper (or a
-  // missing flag) simply hides the feature instead of sending a command it cant handle
+  // default false so an older helper hides the feature instead of getting a command it cant handle
   get canFillOneTimeCodes() {
     return this.capabilities?.canFillOneTimeCodes === true;
   }
@@ -158,8 +144,7 @@ export class ApplePasswords {
 
   _send(cmd, body = {}, timeoutMs = 5000) {
     if (!this.port) throw new Error("connection closed");
-    // replies carry no correlation id, so a second request on the same cmd would steal the
-    // first one's reply. refuse instead of overwriting the waiter
+    // a second request on the same cmd would steal the first one's reply
     if (this._waiters.has(cmd)) return Promise.reject(new Error("another request is already in flight"));
     return new Promise((resolve, reject) => {
       const entry = { resolve, reject, timer: null };
@@ -167,7 +152,6 @@ export class ApplePasswords {
         timeoutMs == null
           ? null
           : setTimeout(() => {
-              // only drop our own entry, never a newer request's
               if (this._waiters.get(cmd) === entry) this._waiters.delete(cmd);
               reject(new Error("timeout waiting for response"));
             }, timeoutMs);
@@ -189,7 +173,6 @@ export class ApplePasswords {
       if (w.timer) clearTimeout(w.timer);
       w.resolve(message);
     }
-    // unsolicited session-invalidation signals from the helper
     if (message.cmd === Command.PASSWORDS_DISABLED || message.cmd === Command.RELOGIN_NEEDED) {
       this.session = undefined;
       this._setState(State.NeedsPin);
@@ -201,8 +184,7 @@ export class ApplePasswords {
     }
   }
 
-  // does NOT reset an existing unlocked session (core fix vs Apple's extension,
-  // which re-pairs on every connect)
+  // never resets an unlocked session, apple's extension re-pairs on every connect
   async connect() {
     if (this.port) return;
     return new Promise((resolve, reject) => {
@@ -219,7 +201,6 @@ export class ApplePasswords {
       port.onDisconnect.addListener(() => {
         const err = chrome.runtime.lastError?.message;
         this.port = undefined;
-        // session key lives only in memory, dropped port means we must re-pair
         this.session = undefined;
         if (err && /not found|forbidden|host/i.test(err)) this._setState(State.NoHelper);
         else this._setState(State.Disconnected);
@@ -228,9 +209,7 @@ export class ApplePasswords {
       this._send(Command.GET_CAPABILITIES)
         .then((reply) => {
           this.capabilities = reply.capabilities ?? {};
-          // capabilities flag may be absent or default to "old"; real helper
-          // negotiates per-handshake via PROTO (we send + verify RFC there). only
-          // reject if capabilities explicitly demand a non-RFC version
+          // helper negotiates the version per handshake via PROTO, so only reject an explicit non-RFC demand
           if (
             this.capabilities.secretSessionVersion !== undefined &&
             this.capabilities.secretSessionVersion !== SecretSessionVersion.SRPWithRFCVerification
@@ -245,8 +224,7 @@ export class ApplePasswords {
     });
   }
 
-  // is there a challenge the user can still answer? the code on the Mac only belongs to
-  // the newest challenge, so anything else must be re-issued before we verify
+  // the code on the Mac only belongs to the newest challenge
   get hasChallenge() {
     return (
       this.state === State.NeedsPin &&
@@ -257,13 +235,11 @@ export class ApplePasswords {
     );
   }
 
-  // ask the helper for a challenge. macOS shows the 6-digit PIN access prompt.
-  // ifNeeded keeps a live prompt alive instead of putting a second code on screen and
-  // silently invalidating the one the user is reading
+  // ifNeeded keeps a live prompt, a second code on screen invalidates the one the user is reading
   requestChallenge({ ifNeeded = false } = {}) {
     if (!this.session) return Promise.reject(new Error("not connected"));
     if (ifNeeded && (this.hasChallenge || this.state === State.Unlocked)) return Promise.resolve(false);
-    // collapse concurrent requests: two prompts would race and only the last code works
+    // two prompts would race and only the last code works
     if (this._challengePending) return this._challengePending;
     const p = this._withLock(() => this._issueChallenge());
     this._challengePending = p;
@@ -275,7 +251,6 @@ export class ApplePasswords {
   }
 
   async _issueChallenge() {
-    // reset prior handshake state
     this.session.serverPublicKey = undefined;
     this.session.salt = undefined;
     this.session.sharedKey = undefined;
@@ -302,16 +277,14 @@ export class ApplePasswords {
     if (pake.PROTO !== SecretSessionVersion.SRPWithRFCVerification) throw new Error("unsupported protocol");
 
     const B = bytesToBigInt(this.session.deserialize(pake.B));
-    const s = this.session.deserialize(pake.s); // raw bytes, see setServerPublicKey
+    const s = this.session.deserialize(pake.s);
     this.session.setServerPublicKey(B, s);
     this._challengeAt = Date.now();
     this._setState(State.NeedsPin);
     return true;
   }
 
-  // a PIN is only valid for the challenge it was displayed for. verifying it against any
-  // other challenge always fails, so never quietly swap the challenge underneath the user -
-  // issue a fresh one and tell the caller to ask for the NEW code
+  // a PIN only matches the challenge it was shown for, so re-issue and ask for the new code
   async verifyPin(pin) {
     if (!this.session) throw new Error("not connected");
     if (!this.hasChallenge) {
@@ -320,7 +293,7 @@ export class ApplePasswords {
     }
     const gen = this._challengeGen;
     return this._withLock(async () => {
-      // something re-issued while we queued: the typed code is for the old prompt
+      // re-issued while queued, typed code is for the old prompt
       if (gen !== this._challengeGen) throw challengeError("Enter the new code your Mac is showing now");
       try {
         await this.session.setSharedKey(pin);
@@ -349,9 +322,7 @@ export class ApplePasswords {
 
         this._setState(State.Unlocked);
       } catch (e) {
-        // the helper burns the challenge on a failed verify, so this code is dead now.
-        // drop it - hasChallenge goes false and the next attempt gets a fresh prompt.
-        // the session itself can be gone already if the port dropped mid-verify
+        // helper burns the challenge on a failed verify, drop it so the next attempt gets a fresh prompt
         if (this.session) {
           this.session.sharedKey = undefined;
           this.session.serverPublicKey = undefined;
@@ -370,7 +341,7 @@ export class ApplePasswords {
       frameId,
       payload: { QID: QueryId[cmd], SMSG: JSON.stringify({ TID: this.session.username, SDATA: sdata }) },
     };
-    // the one-time-code queries carry their URLs inside the encrypted body (frameURLs)
+    // one-time-code queries carry their URLs inside the encrypted body
     if (hostname != null) body.url = hostname;
     const reply = await this._send(cmd, body, timeoutMs);
 
@@ -406,8 +377,7 @@ export class ApplePasswords {
       const res = await this._encryptedQuery(
         Command.GET_PASSWORD_FOR_LOGIN_NAME,
         tabId,
-        // query by trusted frame hostname, never caller-supplied loginName.sites
-        // which a page could use to request another origin's password
+        // query by frame hostname, never loginName.sites which a page could point at another origin
         hostname,
         { ACT: Action.SEARCH, URL: hostname, USR: loginName.username },
         null, // no timeout, helper may require Touch ID here
@@ -415,7 +385,7 @@ export class ApplePasswords {
       if (res.STATUS === QueryStatus.Success) {
         const e = (res.Entries ?? [])[0];
         if (!e) return undefined;
-        // apple's reply is USR/PWD/customTitle/highLevelDomain/sites - no note or OTP seed (verified), cant surface those
+        // reply is USR/PWD/customTitle/highLevelDomain/sites, no note or OTP seed
         return { username: e.USR, password: e.PWD, sites: e.sites };
       }
       if (res.STATUS === QueryStatus.NoResults) return undefined;
@@ -423,10 +393,7 @@ export class ApplePasswords {
     });
   }
 
-  // save or update a login in Apple Passwords. cmd 6 with ACT maybeAdd lets the helper
-  // decide add-vs-update and drive the native macOS save prompt (with Touch ID). the
-  // helper's cmd-6 reply carries no decryptable body so we dont parse one - a page can
-  // only ever trigger the OS prompt, never write to the vault silently
+  // ACT maybeAdd lets the helper decide add-vs-update and drive the native save prompt
   async saveLogin(tabId, url, username, password) {
     if (!this.ready) throw new Error("not unlocked");
     if (!password) throw new Error("no password to save");
@@ -451,8 +418,7 @@ export class ApplePasswords {
           SMSG: JSON.stringify({ TID: this.session.username, SDATA: sdata }),
         },
       };
-      // the ack is empty and user confirmation happens in the native prompt, so a
-      // missing or slow ack is not an error
+      // ack is empty and confirmation happens in the native prompt, so a slow ack is not an error
       try {
         await this._send(Command.SET_PASSWORD_FOR_LOGIN_NAME_URL, body, 3000);
       } catch (e) {
@@ -462,9 +428,6 @@ export class ApplePasswords {
     });
   }
 
-  // verification codes the vault can offer for this frame (and its parents): TOTP generators
-  // saved in Passwords, plus any code the helper just picked up from Messages. listing is
-  // free like login names; the TOTP value itself is read at fill time (readOneTimeCode)
   async getOneTimeCodes(tabId, frameId, frameUrls, username) {
     if (!this.ready) throw new Error("not unlocked");
     if (!this.canFillOneTimeCodes) return { entries: [], requiresAuth: false };
@@ -479,8 +442,7 @@ export class ApplePasswords {
     });
   }
 
-  // the current value of a TOTP generator, fetched the moment the user picks it so a code
-  // listed 20 seconds ago isnt filled after it rotated. may require Touch ID, so no timeout
+  // read at pick time so a code listed earlier isnt filled after it rotated. no timeout, may need Touch ID
   async readOneTimeCode(tabId, frameId, frameUrls, username) {
     if (!this.ready) throw new Error("not unlocked");
     const body = { ACT: Action.SEARCH, TYPE: "oneTimeCodes", frameURLs: frameUrls };
@@ -493,10 +455,6 @@ export class ApplePasswords {
     });
   }
 
-  // hand off to the Passwords app. plain (unencrypted) command, no reply to wait for.
-  //   search:      open the app filtered to this site (the place to read a note, edit, etc)
-  //   newPassword: the app's new-login sheet pre-filled with this site
-  //   totp:        set up a verification-code generator from an otpauth:// URI on the page
   launchPasswordsApp({ searchUrl, newPasswordUrl, totpUri, totpPageUrl } = {}) {
     if (!this.port) throw new Error("not connected");
     const msg = { cmd: Command.LAUNCH_PASSWORDS_APP };

@@ -1,9 +1,5 @@
 #!/usr/bin/python3
-# native messaging host for the popup's "hide browser password manager" toggle.
-# a plain `defaults write` is NOT a forced policy on macOS (the browser ignores it), so this
-# generates a configuration profile and opens it - the user approves it once in System
-# Settings and then PasswordManagerEnabled=false is a real managed policy. speaks chrome's
-# length-prefixed json protocol; runs only `open` on files/urls it builds itself.
+# a plain defaults write is not a forced policy on macOS, so this builds a config profile the user approves once in System Settings
 import ctypes
 import json
 import os
@@ -12,7 +8,6 @@ import subprocess
 import sys
 import uuid
 
-# chrome + brave variants (stable/Beta/Nightly/Dev/Origin) + edge/chromium/arc/vivaldi
 BUNDLES = [
     "com.google.Chrome",
     "com.google.Chrome.beta",
@@ -44,7 +39,7 @@ def _cfstr(x):
 
 
 def is_forced():
-    # true only when a managed profile actually forces the key - the real "is it hidden" signal
+    # true only when a managed profile actually forces the key
     k = _cfstr(KEY)
     return any(_CF.CFPreferencesAppValueIsForced(k, _cfstr(b)) for b in BUNDLES)
 
@@ -93,12 +88,11 @@ def main():
     action = json.loads(sys.stdin.buffer.read(n)).get("action")
 
     if action == "set":
-        # build + open the profile; the user approves it in System Settings to make it stick
         write_profile()
         subprocess.run(["open", PROFILE])
         send({"ok": True, "hidden": is_forced(), "needsApproval": not is_forced()})
     elif action == "clear":
-        # profiles can only be removed by the user in System Settings; open that pane
+        # profiles can only be removed by the user in System Settings
         subprocess.run(["open", "x-apple.systempreferences:com.apple.preferences.configurationprofiles"])
         send({"ok": True, "hidden": is_forced()})
     elif action == "get":

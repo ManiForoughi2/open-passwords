@@ -1,4 +1,4 @@
-// patch navigator.credentials.get in the page's own world: with the toggle on, swallow conditional passkey autofill; modal sign-in + password requests pass through
+// with the toggle on, swallow conditional passkey autofill. modal sign-in and password requests pass through
 (() => {
   const creds = navigator.credentials;
   if (!creds || typeof creds.get !== "function") return;
@@ -11,7 +11,7 @@
   creds.get = function (options) {
     const conditional = !!(options && options.mediation === "conditional" && options.publicKey);
     if (!hide || !conditional) return orig(options);
-    // conditional get stays silent until the user picks; leave it pending (honour abort so the page can clean up)
+    // leave the conditional get pending, honour abort so the page can clean up
     return new Promise((_, reject) => {
       const sig = options.signal;
       if (!sig) return;

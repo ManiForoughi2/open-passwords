@@ -1,10 +1,5 @@
 #!/usr/bin/python3
-# native messaging host for the popup's "enter the pairing code for me" toggle.
-# the 6-digit code is the SRP secret and only ever exists on the helper's own window, so
-# this reads it off that window through System Events (Accessibility) and hands it back to
-# the extension, which verifies it at once. reads ONLY windows of Apple's helper process,
-# nothing else on screen. the browser needs Accessibility + Automation ("System Events")
-# once, macOS asks the first time.
+# reads the 6-digit code off Apple's helper window through System Events, nothing else on screen. needs Accessibility + Automation once
 import json
 import re
 import struct
@@ -14,8 +9,7 @@ import time
 
 HELPER = "PasswordManagerBrowserExtensionHelper"
 
-# every text-bearing attribute of every element in every window of the helper. the digits
-# may sit in one label ("123456") or one label per digit, so both shapes are collected
+# the digits may sit in one label ("123456") or one label per digit, so both shapes are collected
 DUMP = f'''
 tell application "System Events"
   set out to ""
@@ -61,11 +55,10 @@ def osascript(script, timeout=10):
 def extract_code(dump):
     lines = [l.strip() for l in dump.splitlines()]
     for l in lines:
-        # the helper shows it as "167 313"; a plain label or a hyphenated one also lands here
+        # the helper shows it as "167 313"
         m = re.search(r"(?<!\d)(\d{6})(?!\d)", re.sub(r"[\s-]", "", l))
         if m:
             return m.group(1)
-    # one element per digit: take a run of six consecutive single-digit lines
     run = []
     for l in lines:
         if re.fullmatch(r"\d", l):
@@ -74,7 +67,6 @@ def extract_code(dump):
                 return "".join(run)
         else:
             run = []
-    # digits separated by spaces or hyphens in one label
     for l in lines:
         m = re.search(r"(?<!\d)(\d(?:[\s-]\d){5})(?!\d)", l)
         if m:

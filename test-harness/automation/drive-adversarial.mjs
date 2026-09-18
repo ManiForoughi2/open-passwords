@@ -12,7 +12,6 @@ const ctx = await chromium.launchPersistentContext("/tmp/op-adv-"+Date.now(), {
 ctx.serviceWorkers()[0] || await ctx.waitForEvent("serviceworker",{timeout:10000}).catch(()=>null);
 const box = (page) => page.locator('[data-open-passwords="suggestions"]');
 
-// these fields must not trigger the dropdown
 const negatives = [
   ["search-bar", ["#header-search","#inline-search","#form-search"]],
   ["social-tag", ["#tag-search","#tag-combobox"]],
@@ -38,7 +37,6 @@ for (const [pg, sels] of negatives) {
   await page.close();
 }
 
-// mixed page: dropdown only on login fields, not the search box
 {
   const page = await ctx.newPage();
   await page.goto(`${BASE}/mixed-page.html`, {waitUntil:"domcontentloaded"});

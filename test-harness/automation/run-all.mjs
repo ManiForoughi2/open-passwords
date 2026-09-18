@@ -1,8 +1,4 @@
-// run the headless suite in sequence and tally results
-//   1. node build-test-extensions.mjs   # generate mock builds (once)
-//   2. cd .. && python3 -m http.server 8799 --bind 127.0.0.1
-//   3. node run-all.mjs
-// each driver loads a mock ext in headless Chrome and exits 0 pass / non-0 fail
+// needs mock builds (node build-test-extensions.mjs) and python3 -m http.server 8799 --bind 127.0.0.1 from test-harness/
 
 import { spawn } from "child_process";
 import { dirname, join } from "path";

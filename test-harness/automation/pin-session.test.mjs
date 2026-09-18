@@ -1,9 +1,4 @@
-// PIN handshake unit tests. runs the real src/srp.js + src/protocol.js against an SRP-6a
-// server implemented here, so the whole unlock path is exercised with no macOS helper:
-//   node test-harness/automation/pin-session.test.mjs
-//
-// covers the "keeps saying incorrect PIN" class of bug: a code is only valid for the exact
-// challenge it was shown for, so the client must never swap the challenge under the user.
+// a code is only valid for the exact challenge it was shown for, the client must never swap the challenge under the user
 
 import { webcrypto } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -28,12 +23,11 @@ const N = BigInt(
 const NB = 384;
 const g = 5n;
 
-// --- SRP-6a server side (the role the macOS helper plays) ------------------------------
-// salt is bytes, K is a 32-byte digest: both are hashed as-is, never as trimmed bigints.
+// salt is bytes and K a 32-byte digest, both hashed as-is never as trimmed bigints
 class SrpServer {
   constructor({ pin, salt }) {
     this.pin = pin;
-    this.salt = salt; // Uint8Array, exactly as sent on the wire
+    this.salt = salt;
   }
   async start(username, A) {
     this.username = username;
@@ -74,8 +68,7 @@ class SrpServer {
   }
 }
 
-// --- fake native host ------------------------------------------------------------------
-// one code per challenge, and a failed verify burns it, like the real helper
+// one code per challenge, a failed verify burns it like the real helper
 function makeHost({ salts, pins }) {
   const state = { codesShown: [], challenges: 0, server: null, live: false };
   let saltIdx = 0;
@@ -116,11 +109,10 @@ function makeHost({ salts, pins }) {
       });
     }
 
-    // m2: verify
     if (!state.live) return reply({ cmd: 2, payload: { PAKE: b64({ TID: pake.TID, MSG: 3, ErrCode: 1 }) } });
     const expected = await state.server.expectedM();
     const got = unhex(pake.M);
-    state.live = false; // spent either way, exactly like the helper
+    state.live = false;
     if (Buffer.compare(Buffer.from(expected), Buffer.from(got)) !== 0) {
       return reply({ cmd: 2, payload: { PAKE: b64({ TID: pake.TID, MSG: 3, ErrCode: 1 }) } });
     }
@@ -134,7 +126,7 @@ function makeHost({ salts, pins }) {
 
 const leadingZeroSalt = () => {
   const s = crypt.randomBytes(16);
-  s[0] = 0x00; // the 1-in-256 case that used to be silently truncated
+  s[0] = 0x00; // the 1-in-256 case that used to be truncated
   return s;
 };
 const plainSalt = () => {
@@ -151,7 +143,6 @@ async function freshClient() {
   return c;
 }
 
-// 1. baseline: the code shown unlocks
 {
   const host = makeHost({ salts: [plainSalt()], pins: ["123456"] });
   const c = await freshClient();
@@ -161,8 +152,7 @@ async function freshClient() {
   ok("the code shown on the Mac unlocks", c.state === "unlocked" && !err, String(err?.message));
 }
 
-// 2. regression: a salt whose first byte is 0x00 must still unlock. round-tripping the salt
-// through a bigint dropped that byte and the helper reported it as a wrong PIN
+// a salt whose first byte is 0x00 used to be truncated and reported as a wrong PIN
 {
   const host = makeHost({ salts: [leadingZeroSalt()], pins: ["123456"] });
   const c = await freshClient();
@@ -172,12 +162,11 @@ async function freshClient() {
   ok("leading-zero salt still unlocks", c.state === "unlocked" && !err, String(err?.message));
 }
 
-// 3. the shared key is a 32-byte digest, so a leading-zero K must hash at full width
 {
   const salt = plainSalt();
   const s = new SRPSession(false);
   s.setServerPublicKey(2n, salt);
-  s.sharedKey = bytesToBigInt(padBytes(new Uint8Array([0x00, 0x11, 0x22]), 32)); // high byte zero
+  s.sharedKey = bytesToBigInt(padBytes(new Uint8Array([0x00, 0x11, 0x22]), 32));
   const m = await s.computeM();
   const expected = await (async () => {
     const hN = await sha256(bigIntToBytes(N));
@@ -196,7 +185,6 @@ async function freshClient() {
   ok("leading-zero shared key hashes at full 32 bytes", Buffer.compare(Buffer.from(m), Buffer.from(expected)) === 0);
 }
 
-// 4. the whole point: a second prompt must not appear while a code is already up
 {
   const host = makeHost({ salts: [plainSalt()], pins: ["111111", "222222"] });
   const c = await freshClient();
@@ -209,7 +197,6 @@ async function freshClient() {
   ok("the first code still works after ifNeeded calls", c.state === "unlocked" && !err, String(err?.message));
 }
 
-// 5. concurrent requests collapse into one prompt
 {
   const host = makeHost({ salts: [plainSalt()], pins: ["111111", "222222"] });
   const c = await freshClient();
@@ -217,31 +204,28 @@ async function freshClient() {
   ok("concurrent challenge requests show one code", host.challenges === 1, `challenges=${host.challenges}`);
 }
 
-// 6. a code from a superseded challenge is reported as stale, never as "incorrect"
 {
   const host = makeHost({ salts: [plainSalt(), plainSalt()], pins: ["111111", "222222"] });
   const c = await freshClient();
   await c.requestChallenge();
   const firstCode = host.codesShown[0];
-  await c.requestChallenge(); // e.g. the user hit "get a new code"
+  await c.requestChallenge();
   let err = null;
   await c.verifyPin(firstCode).catch((e) => (err = e));
   ok("stale code fails as a wrong code, not a crash", !!err && c.state !== "unlocked", String(err?.message));
-  // and the code now on screen works on the very next attempt
   await c.requestChallenge();
   let err2 = null;
   await c.verifyPin(host.codesShown[host.codesShown.length - 1]).catch((e) => (err2 = e));
   ok("the newest code unlocks right after a stale one", c.state === "unlocked" && !err2, String(err2?.message));
 }
 
-// 7. the loop this fixes: verifying with no live challenge must NOT silently re-challenge and
-// grade the old code against the new one - that failed forever, one code behind
+// verifying with no live challenge must not re-challenge and grade the old code against the new one
 {
   const host = makeHost({ salts: [plainSalt(), plainSalt()], pins: ["111111", "222222"] });
   const c = await freshClient();
   await c.requestChallenge();
   let bad = null;
-  await c.verifyPin("000000").catch((e) => (bad = e)); // wrong code burns the challenge
+  await c.verifyPin("000000").catch((e) => (bad = e));
   ok("wrong code is rejected", !!bad && c.state !== "unlocked", String(bad?.message));
   ok("a spent challenge is not reusable", c.hasChallenge === false);
 
@@ -259,12 +243,11 @@ async function freshClient() {
   ok("typing that new code unlocks (no infinite incorrect loop)", c.state === "unlocked" && !err, String(err?.message));
 }
 
-// 8. an expired code is re-prompted rather than graded
 {
   const host = makeHost({ salts: [plainSalt(), plainSalt()], pins: ["111111", "222222"] });
   const c = await freshClient();
   await c.requestChallenge();
-  c._challengeAt = Date.now() - 10 * 60_000; // sat unanswered for 10 minutes
+  c._challengeAt = Date.now() - 10 * 60_000;
   let err = null;
   await c.verifyPin(host.codesShown[0]).catch((e) => (err = e));
   ok("an expired code re-prompts", err?.code === "challenge_reissued" && host.challenges === 2, `${err?.code} challenges=${host.challenges}`);
