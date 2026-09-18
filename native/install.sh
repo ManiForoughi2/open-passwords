@@ -18,6 +18,42 @@ cp "$DIR/openpasswords-autopair.py" "$APPDIR/openpasswords-autopair.py"
 chmod +x "$APPDIR/openpasswords-autopair.py"
 AUTOPAIR="$APPDIR/openpasswords-autopair.py"
 
+# wrap the reader in a tiny app bundle so the macOS permission prompt says "Open Passwords"
+# rather than "Python 3". needs a C compiler (Xcode command line tools); without one the
+# plain script is registered and the prompt names python
+APP="$APPDIR/Open Passwords Helper.app"
+if command -v cc >/dev/null 2>&1; then
+  rm -rf "$APP"
+  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+  cp "$DIR/openpasswords-autopair.py" "$APP/Contents/Resources/openpasswords-autopair.py"
+  cat > "$APP/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Open Passwords</string>
+  <key>CFBundleDisplayName</key><string>Open Passwords</string>
+  <key>CFBundleIdentifier</key><string>com.openpasswords.helper</string>
+  <key>CFBundleExecutable</key><string>Open Passwords Helper</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSUIElement</key><true/>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Open Passwords reads the 6-digit pairing code from the Passwords helper's window so you don't have to type it.</string>
+</dict>
+</plist>
+EOF
+  if cc -O2 -o "$APP/Contents/MacOS/Open Passwords Helper" "$DIR/autopair-launcher.c" 2>/dev/null \
+     && codesign -s - -f -i com.openpasswords.helper "$APP" >/dev/null 2>&1; then
+    AUTOPAIR="$APP/Contents/MacOS/Open Passwords Helper"
+    echo "  built $(basename "$APP")"
+  else
+    rm -rf "$APP"
+    echo "  (no C compiler or codesign, the pairing-code reader runs as plain python)"
+  fi
+fi
+
 # collect the user-data dir of every installed chromium browser: a fixed set for chrome/edge/
 # chromium/arc/vivaldi, and every BraveSoftware/* variant (stable, beta, nightly, ...)
 found=0

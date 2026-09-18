@@ -11,16 +11,15 @@ client.onStateChange((s) => {
     otpByTab.clear();
   }
   broadcast({ type: "state", state: s });
-  // fresh connection or a relogin demand: pair on our own if the user opted in. next tick so
-  // connect() has resolved first
-  if (s === State.NeedsPin) setTimeout(() => tryAutoPair("state"), 0);
 });
 
 // --- auto-pair -------------------------------------------------------------------
 // the 6-digit code is the SRP secret and only ever appears on the helper's own window. with
 // the toggle on, our native host reads it off that window (Accessibility) and we verify it
 // at once: the window still flashes for a moment, but nobody types anything. one attempt per
-// challenge, never a retry loop - a wrong read burns the code and the manual box takes over
+// challenge, never a retry loop - a wrong read burns the code and the manual box takes over.
+// runs only when the user asks for a code (popup open, "Unlock to autofill"), never on
+// browser launch - a code window popping up unasked at startup is exactly the apple annoyance
 const AUTOPAIR_HOST = "com.openpasswords.autopair";
 let autoPairBusy = false;
 let autoPairError = null; // last failure, shown under the popup toggle
