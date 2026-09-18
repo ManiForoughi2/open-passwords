@@ -21,8 +21,8 @@ Legend: ✅ fixed · 🟡 partial · ⛔ inherent (no extension can fix)
 | 9 | Fills, but login fails until you edit a char | programmatic fill doesn't dispatch `input`/`change`, so the page's JS never sees the value | dispatches real `input` and `change` events on every fill. verified: events fire on both fields | ✅ |
 | 10 | Subdomain / domain-matching failures | strict exact-host matching | passes the full hostname to the helper, which does Apple's own associated-domain matching | 🟡 |
 | 11 | Popup obscures the screen / can't dismiss | overlay z-index and positioning bugs, premature dismissal | the dropdown anchors under the field, closes on outside-click/scroll/resize, and never covers the field | ✅ |
-| 12 | "Never save" flag stuck, unclearable off-Mac | no UI to clear it | no save-flag management yet (no save feature) | ⛔/N-A |
-| 13 | Save-new-password auto-saves without consent | aggressive auto-capture | no auto-save, no silent capture; also no save prompt yet | 🟡 |
+| 12 | "Never save" flag stuck, unclearable off-Mac | no UI to clear it | saving goes through Apple's native save sheet (since v0.26), so the "never save" flag lives in the Passwords app where you can clear it | 🟡 |
+| 13 | Save-new-password auto-saves without consent | aggressive auto-capture | offers to save after a login or password change (since v0.26) and hands off to Apple's native save sheet; nothing is stored without a click | ✅ |
 | 14 | No Linux support | needs the macOS/Windows helper | same constraint, the helper only exists on macOS/Windows | ⛔ |
 | 15 | Touch ID re-prompt friction | re-prompts per fill | the OS controls the biometric gate (`RequiresUserAuthenticationToFill`); can't be removed | ⛔ |
 | 16 | Dark-mode toolbar icon invisible | single-color icon | UI uses `Canvas`/`CanvasText` system colors (theme-aware); icon TODO | 🟡 |
