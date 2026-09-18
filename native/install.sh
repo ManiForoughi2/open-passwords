@@ -1,6 +1,6 @@
 #!/bin/sh
 # registers the "hide password manager" policy helper as a native messaging host for every
-# chromium browser found (incl brave Origin/Beta). run once after cloning. macOS only
+# chromium browser found (chrome, brave variants, edge, arc, vivaldi, chromium). run once after cloning. macOS only
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 EXT_ID="pejdijmoenmkgeppbflobdenhhabjlaj" # the ID our manifest key forces
@@ -18,8 +18,8 @@ cp "$DIR/openpasswords-autopair.py" "$APPDIR/openpasswords-autopair.py"
 chmod +x "$APPDIR/openpasswords-autopair.py"
 AUTOPAIR="$APPDIR/openpasswords-autopair.py"
 
-# collect the support dir of every installed chromium browser: a fixed set for chrome/edge/
-# chromium, and every BraveSoftware/* variant (Brave-Browser, Brave-Origin, -Beta, ...)
+# collect the user-data dir of every installed chromium browser: a fixed set for chrome/edge/
+# chromium/arc/vivaldi, and every BraveSoftware/* variant (stable, beta, nightly, ...)
 found=0
 register() {
   d="$1/NativeMessagingHosts"
@@ -47,7 +47,7 @@ EOF
   found=$((found + 1))
 }
 
-for b in "Google/Chrome" "Google/Chrome Beta" "Google/Chrome Dev" "Google/Chrome Canary" "Microsoft Edge" "Chromium"; do
+for b in "Google/Chrome" "Google/Chrome Beta" "Google/Chrome Dev" "Google/Chrome Canary" "Microsoft Edge" "Chromium" "Arc/User Data" "Vivaldi"; do
   [ -d "$SUPPORT/$b" ] && register "$SUPPORT/$b"
 done
 for d in "$SUPPORT/BraveSoftware/"*/; do

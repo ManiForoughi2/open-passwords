@@ -5,16 +5,16 @@
 <h1 align="center">Open Passwords</h1>
 
 <p align="center">
-  A Chrome/Edge extension that talks to Apple Passwords (iCloud Keychain) on macOS and autofills your logins, without the official extension's headaches.
+  A Chrome/Edge/Brave extension that talks to Apple Passwords (iCloud Keychain) on macOS and autofills your logins, without the official extension's headaches.
 </p>
 
 ---
 
-Apple's official iCloud Passwords extension for Chrome sits at 2.3 out of 5 across ~2,600 ratings. It forgets your session and re-asks for the 6-digit code every few hours, throws an "Enable AutoFill" balloon on top of one-time-code boxes, and fights Chrome's own password manager. This is a replacement client.
+Apple's official iCloud Passwords extension for Chrome sits at 2.3 out of 5 across ~2,600 ratings. It forgets your session and re-asks for the 6-digit code every few hours, throws an "Enable AutoFill" balloon on top of one-time-code boxes, and fights Chrome's own password manager. I got tired of it and wrote a replacement client.
 
-It speaks the same native-messaging protocol Apple's extension uses (`com.apple.passwordmanager`): an SRP-6a handshake where the 6-digit code your Mac shows you is the shared secret, then an AES-GCM encrypted channel for the password queries. Same vault, same OS authorization, with saner client behavior.
+It speaks the same native-messaging protocol Apple's extension uses (`com.apple.passwordmanager`): an SRP-6a handshake where the 6-digit code your Mac shows you is the shared secret, then an AES-GCM encrypted channel for the password queries. Same vault, same OS authorization, saner client behavior.
 
-It connects to the live vault, prompts for the PIN once, lists the logins for the current site, and fills them.
+It connects to the live vault, asks for the code once, lists the logins for the current site, and fills them.
 
 ## What it fixes
 
@@ -26,7 +26,7 @@ It connects to the live vault, prompts for the PIN once, lists the logins for th
 | re-downloads every image on hover to scan for QR codes | there's no image or QR scanning here at all |
 | fills the wrong field or wrong origin | fills are pinned to the page's origin and skip hidden/clickjacked fields |
 
-You fill two ways: the inline dropdown when you focus a login field, or the toolbar popup. Both run through the same origin-checked, OS-authorized path.
+You fill two ways: the inline dropdown when you focus a login field, or the toolbar popup. Both run through the same origin-checked, OS-authorized path. New or changed passwords get offered to Apple's own save sheet, nothing is stored without a click.
 
 ## The catch you should know about first
 
@@ -46,7 +46,7 @@ For a publishable browser client, Firefox is the path that works, see [au2001/ic
 
 ### Why an own-ID version isn't possible
 
-On macOS 15.4+, reading the live vault needs either Apple's native helper (which demands one of Apple's two IDs) or an Apple-only keychain entitlement. Every other route dead-ends:
+On macOS 15.4+, reading the live vault needs either Apple's native helper (which demands one of Apple's two IDs) or an Apple-only keychain entitlement. I tried every other route and each one dead-ends:
 
 | Route | What happened |
 |---|---|
@@ -61,7 +61,7 @@ Borrowing Apple's key is the only way in. The evidence is in [VERIFICATION.md](V
 ## Requirements
 
 - macOS 14 (Sonoma) or later, signed into iCloud with Passwords on
-- Chrome or Edge
+- Chrome, Edge, or Brave (any Chromium browser that loads unpacked extensions should do, those three are what I've run it on)
 - Apple's official iCloud Passwords extension removed or disabled
 
 ## Install
@@ -79,13 +79,13 @@ git clone https://github.com/ManiForoughi2/open-passwords.git
 
 ### Optional: hide the browser's own password manager
 
-The popup can suppress the browser's competing save bubble and autofill dropdown on its own (toggles in the footer). To also remove the browser's whole password manager — the omnibox key icon and built-in autofill — there's a one-time helper, since an extension can't write a macOS policy by itself:
+The popup can suppress the browser's competing save bubble and autofill dropdown on its own (toggles in the footer). Removing the browser's whole password manager, the omnibox key icon and built-in autofill included, takes a macOS managed policy, and an extension can't write one by itself. So there's a one-time helper:
 
 ```bash
 ./native/install.sh   # registers a tiny native helper, macOS only
 ```
 
-Then fully quit and reopen your browser (`Cmd+Q`). The **Hide browser password manager entirely** toggle in the popup now works; it sets `PasswordManagerEnabled=false` for every Chromium browser you have. Undo anytime with `./native/uninstall.sh`. The helper only runs three fixed `defaults` commands and accepts messages solely from this extension's ID.
+It copies `openpasswords-policy.py` to `~/Library/Application Support/OpenPasswords` and registers it as a native messaging host with every Chromium browser it finds (Chrome, Brave, Edge, Chromium, Arc, Vivaldi). Fully quit and reopen your browser (`Cmd+Q`). The **Hide browser password manager entirely** toggle in the popup now works: it builds a configuration profile that sets `PasswordManagerEnabled=false` for those browsers and opens it, you approve it once in System Settings. Turning the toggle off opens the Profiles pane so you can remove it again. `./native/uninstall.sh` removes the helper and its registrations. The helper accepts messages solely from this extension's ID and only ever runs `open` on the profile it wrote.
 
 ## Verification codes, the Passwords app, and a shortcut
 
@@ -97,7 +97,7 @@ The helper that ships with recent macOS (verified on macOS 27) speaks a few comm
 - **Keyboard shortcut.** `Cmd+Shift+.` reopens the dropdown on the focused login or code field, or focuses the login field if nothing is focused. Rebind it at `chrome://extensions/shortcuts`.
 - **Enter the pairing code for me** (off by default). The 6-digit code is the encryption secret and only ever appears on the helper's own window, so pairing can't be skipped. With this toggle on, a small native helper reads the code off that window through Accessibility the moment it appears and the extension enters it. The window still flashes for well under a second, once per browser launch, and nobody types anything. The reader looks at Apple's helper window and nothing else. macOS asks once to let the browser automate System Events; if the toggle reports an error, also add the browser under System Settings → Privacy & Security → Accessibility. Needs `native/install.sh`.
 
-Every code is offered behind a click, the same rule as passwords: a page never gets a code because a field appeared.
+Every code sits behind a click, same rule as passwords. A page never gets a code because a field appeared.
 
 ## How it works
 
@@ -120,7 +120,7 @@ PasswordManagerBrowserExtensionHelper (macOS native, talks to iCloud Keychain)
 
 - the macOS authorization prompt. when the helper reads a password, macOS itself asks for Touch ID or your login password. that's the per-credential `RequiresUserAuthenticationToFill` flag set by the vault. Chrome's built-in manager skips it only because it keeps passwords in its own database instead of the iCloud vault, and removing it would mean giving up live vault access.
 - no Linux. same as Apple, the native helper only exists on macOS and Windows.
-- no passkey or TOTP management. out of scope, this reads passwords and login names.
+- no passkey or TOTP management. codes get filled, but you create and edit the generators in the Passwords app.
 - it still rides on Apple's helper. if Apple changes or breaks it, like past macOS updates have, this breaks too.
 
 ## Troubleshooting
@@ -138,7 +138,7 @@ A code expires after 3 minutes. After that, the extension asks your Mac for a ne
 - the session key lives only in the worker's memory and is never written to disk
 - every password query is AES-GCM encrypted end to end with the helper
 - the PIN only derives the SRP shared key, it isn't stored
-- reading a password can trigger a Touch ID prompt, that's the helper, not this extension
+- reading a password can trigger a Touch ID prompt, that prompt comes from the helper
 
 ## Credits
 

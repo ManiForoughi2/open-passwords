@@ -12,7 +12,7 @@ import subprocess
 import sys
 import uuid
 
-# chrome + brave variants (Origin/Beta/Nightly/Dev) + edge/chromium
+# chrome + brave variants (stable/Beta/Nightly/Dev/Origin) + edge/chromium/arc/vivaldi
 BUNDLES = [
     "com.google.Chrome",
     "com.google.Chrome.beta",
@@ -25,6 +25,8 @@ BUNDLES = [
     "com.brave.Browser.dev",
     "com.microsoft.EdgeMac",
     "org.chromium.Chromium",
+    "company.thebrowser.Browser",
+    "com.vivaldi.Vivaldi",
 ]
 KEY = "PasswordManagerEnabled"
 APPDIR = os.path.expanduser("~/Library/Application Support/OpenPasswords")
@@ -65,7 +67,7 @@ def write_profile():
     profile = {
         "PayloadType": "Configuration",
         "PayloadDisplayName": "Open Passwords - Hide Browser Password Manager",
-        "PayloadDescription": "Disables the built-in password manager in Chrome/Brave.",
+        "PayloadDescription": "Disables the built-in password manager in Chromium browsers.",
         "PayloadIdentifier": "com.openpasswords.hidepm",
         "PayloadUUID": "1D8B2E90-0000-4000-A000-4F70656E5057",
         "PayloadVersion": 1,
