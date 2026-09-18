@@ -11,7 +11,69 @@ client.onStateChange((s) => {
     otpByTab.clear();
   }
   broadcast({ type: "state", state: s });
+  // fresh connection or a relogin demand: pair on our own if the user opted in. next tick so
+  // connect() has resolved first
+  if (s === State.NeedsPin) setTimeout(() => tryAutoPair("state"), 0);
 });
+
+// --- auto-pair -------------------------------------------------------------------
+// the 6-digit code is the SRP secret and only ever appears on the helper's own window. with
+// the toggle on, our native host reads it off that window (Accessibility) and we verify it
+// at once: the window still flashes for a moment, but nobody types anything. one attempt per
+// challenge, never a retry loop - a wrong read burns the code and the manual box takes over
+const AUTOPAIR_HOST = "com.openpasswords.autopair";
+let autoPairBusy = false;
+let autoPairError = null; // last failure, shown under the popup toggle
+
+function autoPairEnabled() {
+  return new Promise((r) => chrome.storage.local.get({ autoPair: false }, (o) => r(!!o.autoPair)));
+}
+
+function autoPairMsg(body) {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendNativeMessage(AUTOPAIR_HOST, body, (r) => {
+        const err = chrome.runtime.lastError;
+        resolve(err ? { ok: false, error: err.message } : r || { ok: false, error: "no reply" });
+      });
+    } catch (e) {
+      resolve({ ok: false, error: String(e?.message ?? e) });
+    }
+  });
+}
+
+async function tryAutoPair(reason) {
+  if (autoPairBusy || client.state !== State.NeedsPin) return false;
+  if (!(await autoPairEnabled())) return false;
+  autoPairBusy = true;
+  try {
+    // reuse a code that is already on screen rather than replacing it under the user
+    await withTimeout(client.requestChallenge({ ifNeeded: true }), 8000, "challenge timed out");
+    const res = await autoPairMsg({ action: "read", timeoutMs: 6000 });
+    if (!res.ok || !res.code) {
+      autoPairError = res.error || "no code visible";
+      console.debug("[Open Passwords] auto-pair skipped:", autoPairError, reason);
+      return false;
+    }
+    await withTimeout(client.verifyPin(res.code), 8000, "verification timed out");
+    autoPairError = null;
+    if (client.ready) {
+      flushPendingSaves();
+      // a page with the inline PIN box open finishes its fill; only the active tab has one
+      try {
+        const tab = await activeTab();
+        if (tab?.id != null) chrome.tabs.sendMessage(tab.id, { type: "unlocked" }).catch(() => {});
+      } catch (_) {}
+    }
+    return client.ready;
+  } catch (e) {
+    autoPairError = String(e?.message ?? e);
+    console.debug("[Open Passwords] auto-pair failed:", autoPairError, reason);
+    return false;
+  } finally {
+    autoPairBusy = false;
+  }
+}
 
 // a code just arrived on the Mac (Messages). tell the active tab so an open dropdown on a
 // code field refreshes and shows it, the way safari surfaces an SMS code as it lands
@@ -467,8 +529,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               newPasswordSheet: client.canOpenPasswordsAppToNewPasswordSheet,
               setUpTotp: client.canSetUpTotp,
             },
+            autoPairError,
           });
           break;
+
+        case "autoPairCheck": {
+          // popup toggle: can the reader reach System Events at all? (host installed, and the
+          // browser allowed to automate it)
+          const r = await autoPairMsg({ action: "check" });
+          sendResponse(r);
+          break;
+        }
 
         case "getOneTimeCodes": {
           // popup: verification codes for the active tab's top page
@@ -536,6 +607,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // ifNeeded: leave a code thats already up on the Mac alone. re-asking would show a
           // second prompt and kill the code the user is in the middle of typing
           await withTimeout(client.requestChallenge({ ifNeeded: !!msg.ifNeeded }), 8000, "challenge timed out");
+          // with auto-pair on, the code that just went up gets read and entered in the
+          // background; the UI shows its PIN box meanwhile and re-renders on the state change
+          tryAutoPair("request");
           sendResponse({ ok: true, state: client.state, hasChallenge: client.hasChallenge });
           break;
 

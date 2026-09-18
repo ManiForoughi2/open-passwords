@@ -1,6 +1,6 @@
 // fills credentials into the page on request from popup. never treats OTP inputs
 // as fillable login fields - that misclassification is apple's balloon-on-every-OTP bug
-console.log("[Open Passwords] content script v0.48.0 loaded");
+console.log("[Open Passwords] content script v0.49.0 loaded");
 
 const OTP_AUTOCOMPLETE = /one-time-code/i;
 const OTP_HINT = /\b(otp|one[\s-]?time|verification|2fa|mfa|sms[\s-]?code|auth[\s-]?code|security[\s-]?code|passcode)\b/i;
@@ -268,6 +268,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       onShortcut();
       return false;
     }
+    case "unlocked": {
+      // auto-pair opened the vault while the inline PIN box was up: carry on with the fill
+      if (suggestionEl && typeof lockedResume === "function") lockedResume();
+      return false;
+    }
     case "findTotpUri": {
       if (window !== window.top) return false;
       sendResponse({ uris: findTotpUris() });
@@ -281,6 +286,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 let fillAnchor = null;
 // the code field the user picked a verification code from
 let otpAnchor = null;
+// while the inline PIN box is up: what to do once the vault opens (set by buildLockedSuggestion)
+let lockedResume = null;
 // last credential we autofilled, to suppress a save-offer for a login just filled from the vault
 let lastAutofill = null;
 // last password we generated, so its submit always offers to save (reset page / password change)
@@ -333,6 +340,7 @@ function removeSuggestion() {
   anchorField = null;
   navItems = [];
   navIndex = -1;
+  lockedResume = null;
 }
 
 // highlight active row, keep it in view
@@ -551,6 +559,33 @@ async function buildLockedSuggestion(field, onUnlock) {
   // the code the user is reading, which is exactly how you get "incorrect" forever
   chrome.runtime.sendMessage({ type: "requestChallenge", ifNeeded: true }).catch(() => {});
 
+  // the vault opened, by a typed code or by auto-pair in the background: finish what the user
+  // asked for. also reachable from the background's "unlocked" message while this box is up
+  const finishUnlock = async () => {
+    lockedResume = null;
+    // caller wants to resume its own action after unlock (e.g. save the password)
+    if (typeof onUnlock === "function") {
+      removeSuggestion();
+      onUnlock();
+      return;
+    }
+    // unlocked: complete the autofill they already asked for - fill directly on a
+    // single match, else show the chooser
+    cachedLogins = null;
+    const r2 = await chrome.runtime.sendMessage({ type: "inlineLogins" }).catch(() => null);
+    cachedLogins = r2?.logins || [];
+    if (cachedLogins.length === 1) {
+      removeSuggestion();
+      fillAnchor = field;
+      chrome.runtime.sendMessage({ type: "inlineFill", loginName: cachedLogins[0] }).catch(() => {});
+    } else if (cachedLogins.length > 1) {
+      buildChooser(field, cachedLogins);
+    } else {
+      removeSuggestion();
+    }
+  };
+  lockedResume = finishUnlock;
+
   let verifying = false;
   const doVerify = async () => {
     if (verifying) return;
@@ -568,26 +603,7 @@ async function buildLockedSuggestion(field, onUnlock) {
     }
     verifying = false;
     if (res?.ok && res.state === "unlocked") {
-      // caller wants to resume its own action after unlock (e.g. save the password)
-      if (typeof onUnlock === "function") {
-        removeSuggestion();
-        onUnlock();
-        return;
-      }
-      // unlocked: complete the autofill they already asked for - fill directly on a
-      // single match, else show the chooser
-      cachedLogins = null;
-      const r2 = await chrome.runtime.sendMessage({ type: "inlineLogins" }).catch(() => null);
-      cachedLogins = r2?.logins || [];
-      if (cachedLogins.length === 1) {
-        removeSuggestion();
-        fillAnchor = field;
-        chrome.runtime.sendMessage({ type: "inlineFill", loginName: cachedLogins[0] }).catch(() => {});
-      } else if (cachedLogins.length > 1) {
-        buildChooser(field, cachedLogins);
-      } else {
-        removeSuggestion();
-      }
+      finishUnlock();
     } else {
       // the attempt burned that challenge, so the background already put a NEW code on the
       // Mac. say so - retyping the code still on screen from the old prompt never works

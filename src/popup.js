@@ -153,6 +153,35 @@ pkToggle.addEventListener("change", () => {
   chrome.storage?.local?.set({ hidePasskeys: pkToggle.checked });
 });
 
+// read the 6-digit pairing code off the helper's window and enter it, so a fresh browser
+// launch pairs on its own. off by default: it needs the browser to be allowed to automate
+// System Events, and macOS asks for that the first time
+const autoPairToggle = document.getElementById("autopair-toggle");
+const autoPairNote = document.getElementById("autopair-note");
+chrome.storage?.local?.get({ autoPair: false }, (d) => {
+  autoPairToggle.checked = !!d.autoPair;
+});
+autoPairToggle.addEventListener("change", async () => {
+  const on = autoPairToggle.checked;
+  chrome.storage?.local?.set({ autoPair: on });
+  autoPairNote.textContent = "";
+  if (!on) return;
+  autoPairNote.textContent = "checking…";
+  const r = await send({ type: "autoPairCheck" });
+  if (r?.ok) {
+    autoPairNote.textContent = "on - the next code your Mac shows gets entered for you";
+  } else if (/not found|forbidden|host/i.test(r?.error || "")) {
+    autoPairNote.textContent = "needs the reader helper - run native/install.sh, then restart the browser";
+  } else {
+    autoPairNote.textContent = r?.error || "the reader could not reach System Events";
+  }
+});
+
+function renderAutoPairError(err) {
+  if (!autoPairToggle.checked || !err) return;
+  autoPairNote.textContent = `last attempt: ${err}`;
+}
+
 function setDot(state) {
   dot.className = "dot";
   if (state === "unlocked") dot.classList.add("ok");
@@ -402,6 +431,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 (async () => {
   const res = await send({ type: "getState" });
   caps = res?.caps || {};
+  renderAutoPairError(res?.autoPairError);
   let state = res?.state ?? "disconnected";
   if (state === "needs_pin") {
     // trigger the macOS access prompt, but never on top of a code thats already showing

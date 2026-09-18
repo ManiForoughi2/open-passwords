@@ -14,6 +14,10 @@ cp "$DIR/openpasswords-policy.py" "$APPDIR/openpasswords-policy.py"
 chmod +x "$APPDIR/openpasswords-policy.py"
 HELPER="$APPDIR/openpasswords-policy.py"
 
+cp "$DIR/openpasswords-autopair.py" "$APPDIR/openpasswords-autopair.py"
+chmod +x "$APPDIR/openpasswords-autopair.py"
+AUTOPAIR="$APPDIR/openpasswords-autopair.py"
+
 # collect the support dir of every installed chromium browser: a fixed set for chrome/edge/
 # chromium, and every BraveSoftware/* variant (Brave-Browser, Brave-Origin, -Beta, ...)
 found=0
@@ -25,6 +29,16 @@ register() {
   "name": "com.openpasswords.policy",
   "description": "Open Passwords policy helper",
   "path": "$HELPER",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://$EXT_ID/"]
+}
+EOF
+  # pairing-code reader. only runs when the popup toggle is on
+  cat > "$d/com.openpasswords.autopair.json" <<EOF
+{
+  "name": "com.openpasswords.autopair",
+  "description": "Open Passwords pairing-code reader",
+  "path": "$AUTOPAIR",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://$EXT_ID/"]
 }
