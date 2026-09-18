@@ -361,12 +361,37 @@ function registerRow(row, onActivate) {
   const idx = navItems.length;
   navItems.push({ el: row, onActivate });
   row.addEventListener("mouseenter", () => setActiveNav(idx));
+  // mousedown only keeps focus on the field. the row acts on click, so the box is still
+  // under the pointer when the click fires and it cannot land on a link behind it (x.com's
+  // "forgot password" sat right under the dropdown, github issue #2)
   row.addEventListener("mousedown", (e) => {
     if (!e.isTrusted) return; // ignore page-synthesized events
     e.preventDefault();
+    e.stopPropagation();
+    rowPressAt = Date.now();
+  });
+  row.addEventListener("click", (e) => {
+    if (!e.isTrusted) return;
+    e.preventDefault();
+    e.stopPropagation();
     onActivate();
   });
 }
+
+// a click that follows a row press but reaches the page anyway (the box was torn down by a
+// focus change in between) must not act on the page
+let rowPressAt = 0;
+document.addEventListener(
+  "click",
+  (e) => {
+    if (!rowPressAt || Date.now() - rowPressAt > 700) return;
+    if (suggestionEl && suggestionEl.contains(e.target)) return;
+    rowPressAt = 0;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  },
+  true,
+);
 
 // arrows move selection, Enter fills the row (not submit), Escape closes. driven from the
 // focused anchor field (rows use mousedown+preventDefault so they never steal focus)

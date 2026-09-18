@@ -50,6 +50,37 @@ const txt = async (page) => (await box(page).count()) ? (await box(page).innerTe
   await page.close();
 }
 
+// github issue #2: a real mouse click on a row must not fall through to a link behind the
+// dropdown (x.com had "forgot password" right under it)
+{
+  const page = await ctx.newPage();
+  await page.goto(`${BASE}/login-standard.html`, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(300);
+  await page.focus('input[name="username"]');
+  await page.waitForTimeout(600);
+  const row = box(page).locator("text=test@example.com");
+  const r = await row.boundingBox();
+  ok("clickthrough: row is up", !!r, "no row");
+  if (r) {
+    // a link covering the exact spot, layered under the dropdown
+    await page.evaluate(({ x, y, w, h }) => {
+      const a = document.createElement("a");
+      a.href = "#clicked-through";
+      a.id = "behind";
+      a.textContent = "forgot password";
+      Object.assign(a.style, { position: "fixed", left: x + "px", top: y + "px", width: w + "px", height: h + "px", zIndex: "2147483646", display: "block", background: "pink" });
+      document.body.appendChild(a);
+    }, { x: r.x, y: r.y, w: r.width, h: r.height });
+    await page.mouse.click(r.x + r.width / 2, r.y + r.height / 2);
+    await page.waitForTimeout(500);
+    const hash = await page.evaluate(() => location.hash);
+    const val = await page.inputValue('input[name="username"]');
+    ok("clickthrough: click did not reach the link behind", hash !== "#clicked-through", `hash="${hash}"`);
+    ok("clickthrough: the row still filled", val === "test@example.com", `value="${val}"`);
+  }
+  await page.close();
+}
+
 // a login field gets logins, never a code row
 {
   const page = await ctx.newPage();
