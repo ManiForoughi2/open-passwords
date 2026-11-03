@@ -17,6 +17,8 @@ const BROWSER_NAME = "Chrome";
 const VERSION = "1.0";
 // past this we re-prompt instead of verifying against a code the user lost track of
 const CHALLENGE_TTL_MS = 3 * 60_000;
+// long enough for Touch ID, short enough that a read the helper never answers cant hold the lock forever
+const AUTH_TIMEOUT_MS = 60_000;
 
 // callers show "new code" wording for this, retyping the old code can never work
 function challengeError(message) {
@@ -380,7 +382,7 @@ export class ApplePasswords {
         // query by frame hostname, never loginName.sites which a page could point at another origin
         hostname,
         { ACT: Action.SEARCH, URL: hostname, USR: loginName.username },
-        null, // no timeout, helper may require Touch ID here
+        AUTH_TIMEOUT_MS,
       );
       if (res.STATUS === QueryStatus.Success) {
         const e = (res.Entries ?? [])[0];
@@ -442,13 +444,13 @@ export class ApplePasswords {
     });
   }
 
-  // read at pick time so a code listed earlier isnt filled after it rotated. no timeout, may need Touch ID
+  // read at pick time so a code listed earlier isnt filled after it rotated. may need Touch ID
   async readOneTimeCode(tabId, frameId, frameUrls, username) {
     if (!this.ready) throw new Error("not unlocked");
     const body = { ACT: Action.SEARCH, TYPE: "oneTimeCodes", frameURLs: frameUrls };
     if (username) body.username = username;
     return this._withLock(async () => {
-      const res = await this._encryptedQuery(Command.DID_FILL_ONE_TIME_CODE, tabId, null, body, null, frameId);
+      const res = await this._encryptedQuery(Command.DID_FILL_ONE_TIME_CODE, tabId, null, body, AUTH_TIMEOUT_MS, frameId);
       if (res.STATUS === QueryStatus.Success) return normalizeOtpEntries(res.Entries);
       if (res.STATUS === QueryStatus.NoResults) return [];
       throw queryStatusError(res.STATUS);
