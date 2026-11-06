@@ -20,6 +20,9 @@ const negatives = [
   ["checkout-address", ["#first-name","#last-name","#address","#city","#postal-code","#email"]],
   ["newsletter", ["input[type=email]"]],
   ["profile-edit", ["#display-name","#profile-email","#profile-phone"]],
+  ["otp-password-field", ["#otp-pass"]],
+  ["mixed-footer-email", ["#foot-email"]],
+  ["waitlist", ["#waitlist-email"]],
 ];
 for (const [pg, sels] of negatives) {
   const page = await ctx.newPage();
@@ -61,6 +64,18 @@ for (const [pg, sels] of negatives) {
     await pwd.focus(); await page.waitForTimeout(300);
     ok("mixed-page password: dropdown shows", await box(page).count()>0, "no dropdown on real password field");
   }
+  await page.close();
+}
+
+// positive guard: the real login on the footer-email page must still offer (scoping the
+// page-wide password check must not break genuine logins)
+{
+  const page = await ctx.newPage();
+  await page.goto(`${BASE}/mixed-footer-email.html`, {waitUntil:"domcontentloaded"});
+  await page.waitForTimeout(250);
+  await page.locator("#login-pass").first().focus().catch(()=>{});
+  await page.waitForTimeout(300);
+  ok("mixed-footer-email #login-pass: dropdown shows", await box(page).count()>0, "no dropdown on the real password field");
   await page.close();
 }
 

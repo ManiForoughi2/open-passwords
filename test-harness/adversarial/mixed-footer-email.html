@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adversarial: footer newsletter email beside a login form</title>
+  <link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+  <div class="page">
+    <h1>Newsletter email in the footer, login form in the body</h1>
+    <p class="scenario-sub">A real login form and an unrelated newsletter email field coexist on one page, in separate forms.</p>
+
+    <div class="expect">
+      Correct behavior: the dropdown appears on the login form's username/password (<code>#login-user</code>, <code>#login-pass</code>), but NOT on the footer newsletter email (<code>#foot-email</code>). The footer field is <code>autocomplete="email"</code> in its own form with no password &mdash; a page-wide "is there any password?" check must not borrow the login form's password for it.
+    </div>
+
+    <div class="card">
+      <h2>Sign in</h2>
+      <form id="login-form" action="javascript:void(0)">
+        <div class="field">
+          <label for="login-user">Username</label>
+          <input type="text" id="login-user" name="username" autocomplete="username" placeholder="you@example.com">
+        </div>
+        <div class="field">
+          <label for="login-pass">Password</label>
+          <input type="password" id="login-pass" name="password" autocomplete="current-password" placeholder="Your password">
+        </div>
+        <button type="button">Sign in</button>
+      </form>
+    </div>
+
+    <footer>
+      <form id="newsletter-form" action="javascript:void(0)">
+        <label for="foot-email">Get our newsletter</label>
+        <input type="email" id="foot-email" name="email" autocomplete="email" placeholder="you@example.com">
+        <button type="button">Subscribe</button>
+      </form>
+      Inert mock page &middot; no network, no submission.
+    </footer>
+  </div>
+</body>
+</html>

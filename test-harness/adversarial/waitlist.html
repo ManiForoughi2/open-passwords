@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adversarial: early-access waitlist email</title>
+  <link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+  <div class="page">
+    <h1>Early-access waitlist (email + "Continue")</h1>
+    <p class="scenario-sub">A single email field with a "Continue" button and no password anywhere.</p>
+
+    <div class="expect">
+      Correct behavior: NO saved-login dropdown. This is a waitlist signup, not a login's first step. The only "login-ish" signal is the word "Continue" on the button &mdash; which a lot of non-login flows use. There is no <code>autocomplete="username"</code>, no login-ish path, and no password on the page.
+    </div>
+
+    <div class="card">
+      <h2>Join the waitlist</h2>
+      <p class="hint">A lone <code>type="email"</code> (<code>autocomplete="email"</code>, NOT <code>username</code>) with a generic <code>Continue</code> button, no password field. The two-step-login fallback must not fire on a button word alone.</p>
+      <form action="javascript:void(0)">
+        <div class="field">
+          <label for="waitlist-email">Get early access</label>
+          <input type="email" id="waitlist-email" name="email" autocomplete="email" placeholder="you@example.com">
+        </div>
+        <button type="button">Continue</button>
+      </form>
+    </div>
+
+    <a class="backlink" href="index.html">&larr; Back to adversarial index</a>
+  </div>
+
+  <footer>Inert mock page &middot; no network, no submission.</footer>
+</body>
+</html>

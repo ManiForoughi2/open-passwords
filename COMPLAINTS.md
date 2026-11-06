@@ -13,7 +13,7 @@ Legend: ✅ fixed · 🟡 partial · ⛔ inherent (no extension can fix)
 | 1 | Constant re-prompt for the 6-digit code (the top complaint) | re-pairs every restart and often every few hours; resets the session on every capabilities reload | keep-alive holds the MV3 worker and the live session, and it never resets on a benign reconnect, so the frequent mid-session re-prompts are gone. only a full browser restart re-pairs (the session key is bound to the connection; Apple and au2001 both re-handshake per connection) | ✅/⛔ |
 | 2 | Verification code never arrives | helper deadlocks; says code generated, none appears | 8s timeout plus a clear error instead of hanging; a broken helper is helper-side | 🟡 |
 | 3 | "Failed to verify your identity" | server/helper rejects the browser | helper-side / Apple gating | ⛔ |
-| 4 | "Enable AutoFill" balloon on every OTP box and random fields | pops on one-time-code boxes and non-login fields | never shows on OTP fields, search, tag, comment, etc. verified: 22/22 adversarial pages show nothing; OTP pages show nothing | ✅ |
+| 4 | "Enable AutoFill" balloon on every OTP box and random fields | pops on one-time-code boxes and non-login fields | never shows on OTP fields, search, tag, comment, etc. verified: 26/26 adversarial pages show nothing; OTP pages show nothing | ✅ |
 | 5 | High CPU / typing lag | re-scans the DOM and re-attaches listeners on every keystroke | zero per-keystroke or DOM-scan work, only a `focusin` listener. no typing cost | ✅ |
 | 6 | Double popups vs Chrome's manager | both managers fight over the field | suppresses only Chrome's password autofill (see #7) so there's one clean dropdown | ✅ |
 | 7 | Breaks Google Pay / payment autofill | Apple's "disable Chrome autofill" also kills credit-card and address autofill | suppresses only `passwordSavingEnabled`; Chrome's payment and address autofill keep working | ✅ |
@@ -31,7 +31,7 @@ Legend: ✅ fixed · 🟡 partial · ⛔ inherent (no extension can fix)
 
 ## What it fixes that Apple doesn't
 
-- the OTP-balloon and false-positive firing (#4): 22/22 adversarial pages clean
+- the OTP-balloon and false-positive firing (#4): 26/26 adversarial pages clean
 - frequent re-prompting within a session (#1): keep-alive plus no-reset
 - the "edit a char to make login work" bug (#9): proper input events
 - breaking Google Pay (#7): payment autofill untouched
@@ -48,8 +48,9 @@ Legend: ✅ fixed · 🟡 partial · ⛔ inherent (no extension can fix)
 
 ## Not yet built
 
-- a save-new-password prompt (#13) and a settings UI to clear "never save" (#12)
+- a settings UI to clear "never save" (#12) — the save-new-password prompt (#13) itself
+  shipped in v0.26 (see the table above) and hands off to Apple's native save sheet
 
 Every ✅ above is backed by an automated test in `test-harness/automation/`. Totals
-at last run: 22/22 adversarial, 17/17 UI, 4/4 PIN, plus multi-account, input-events
+at last run: 26/26 adversarial, 17/17 UI, 4/4 PIN, plus multi-account, input-events
 (#9), and clickjacking (#18).

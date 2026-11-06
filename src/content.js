@@ -60,6 +60,12 @@ function isSearchOrComboField(el) {
 }
 
 function pageHasVisiblePassword(field) {
+  // a field inside its own <form> must not borrow a password from an unrelated form elsewhere
+  // on the page (e.g. a footer newsletter email next to a separate login form). scope to the
+  // field's own form; the formless case (SPA logins with no <form>) still looks page-wide.
+  if (field?.form) {
+    return Array.from(field.form.querySelectorAll('input[type="password"]')).some(isVisible);
+  }
   if (Array.from(document.querySelectorAll('input[type="password"]')).some(isVisible)) return true;
   const root = field?.getRootNode?.();
   if (root && root !== document && root.querySelectorAll) {
@@ -79,14 +85,31 @@ function hasStrongIdentitySignal(el) {
 
 const LOGINISH = /log[\s_-]?in|sign[\s_-]?in|auth|session|sso|oauth|account|idp|passport/i;
 
+// checkout/shipping forms are address-autofill territory, not logins: an email field plus a
+// "Continue"/"Next" button must not look like a two-step login (the browser handles addresses)
+const ADDRESS_AC =
+  /\b(address-line[12]|street-address|postal-code|address-level[1234]|country(-name)?|(given|family|additional)-name|shipping|billing|cc-)/i;
+function isAddressAutofillContext(el) {
+  const scope = el.form || document;
+  return Array.from(scope.querySelectorAll("input, select")).some(
+    (i) => i !== el && ADDRESS_AC.test((i.getAttribute("autocomplete") || "").toLowerCase()),
+  );
+}
+
 // gates the two-step case where no password field exists yet
 function loginishContext(el) {
+  // a form carrying shipping/billing address fields is checkout, not a login's first step
+  if (isAddressAutofillContext(el)) return false;
   if (LOGINISH.test(location.hostname + location.pathname)) return true;
   const form = el.form;
   if (form && LOGINISH.test(form.getAttribute("action") || "")) return true;
   const scope = form || document;
+  // only an explicit "sign in"/"log in" button is a strong enough signal on its own. a bare
+  // "Continue"/"Next" is used by waitlists, onboarding, and multi-step forms that aren't logins,
+  // so it must not trip the two-step fallback by itself. genuine two-step logins (Google,
+  // Microsoft, Acme) set autocomplete=username on the email box and are caught before this gate.
   return Array.from(scope.querySelectorAll("button, input[type=submit]")).some((b) =>
-    /\b(sign[\s-]?in|log[\s-]?in|continue|next)\b/i.test(b.textContent || b.value || ""),
+    /\b(sign[\s-]?in|log[\s-]?in)\b/i.test(b.textContent || b.value || ""),
   );
 }
 
