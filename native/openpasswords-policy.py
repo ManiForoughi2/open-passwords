@@ -22,6 +22,7 @@ BUNDLES = [
     "org.chromium.Chromium",
     "company.thebrowser.Browser",
     "com.vivaldi.Vivaldi",
+    "net.imput.helium",
 ]
 KEY = "PasswordManagerEnabled"
 APPDIR = os.path.expanduser("~/Library/Application Support/OpenPasswords")
